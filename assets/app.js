@@ -857,7 +857,7 @@ function bindPageEvents(page) {
       $('#manual-deposit-reference').placeholder=crypto?'Enter transaction hash (TXID)':'Enter your bank transfer reference';
     };
     asset?.addEventListener('change',syncDeposit);
-    $('input[name="deposit-method"]').forEach(r=>r.addEventListener('change',()=>{const group=$(`#deposit-${r.value==='bank'?'usd':'crypto'}-group`);if(group?.querySelector('option'))asset.value=group.querySelector('option').value;syncDeposit();}));syncDeposit();
+    $$('input[name="deposit-method"]').forEach(r=>r.addEventListener('change',()=>{const group=$(`#deposit-${r.value==='bank'?'usd':'crypto'}-group`);if(group?.querySelector('option'))asset.value=group.querySelector('option').value;syncDeposit();}));syncDeposit();
     $('#manual-deposit-form')?.addEventListener('submit',async(event)=>{
       event.preventDefault();
       const button=$('#manual-deposit-submit');button.disabled=true;button.textContent='Submitting request…';
@@ -891,7 +891,7 @@ function bindPageEvents(page) {
       $('#manual-withdrawal-destination').placeholder=crypto?'Paste the destination wallet address':'Bank name, account holder and account number';
     };
     asset?.addEventListener('change',syncWithdraw);
-    $('input[name="withdraw-method"]').forEach(r=>r.addEventListener('change',()=>{const group=$(`#withdraw-${r.value==='bank'?'usd':'crypto'}-group`);if(group?.querySelector('option'))asset.value=group.querySelector('option').value;syncWithdraw();}));syncWithdraw();
+    $$('input[name="withdraw-method"]').forEach(r=>r.addEventListener('change',()=>{const group=$(`#withdraw-${r.value==='bank'?'usd':'crypto'}-group`);if(group?.querySelector('option'))asset.value=group.querySelector('option').value;syncWithdraw();}));syncWithdraw();
     $('#manual-withdrawal-form')?.addEventListener('submit',async(event)=>{
       event.preventDefault();
       const asset=$('#manual-withdrawal-asset').value,amount=$('#manual-withdrawal-amount').value;
@@ -916,8 +916,8 @@ function bindPageEvents(page) {
   if(page==='referrals')$('#copy-referral')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#referral-code').value);toast('Referral code copied.','success');}catch{toast('Copy is not available in this browser.','error');}});
   if(page==='admin'){
     $('#open-invite-admin')?.addEventListener('click',openAdminInviteModal);
-    $('[data-manual-deposit]').forEach(btn=>btn.addEventListener('click',()=>reviewManualDeposit(btn.dataset.id,btn.dataset.manualDeposit)));
-    $('[data-manual-withdrawal]').forEach(btn=>btn.addEventListener('click',()=>reviewManualWithdrawal(btn.dataset.id,btn.dataset.manualWithdrawal)));
+    $$('[data-manual-deposit]').forEach(btn=>btn.addEventListener('click',()=>reviewManualDeposit(btn.dataset.id,btn.dataset.manualDeposit)));
+    $$('[data-manual-withdrawal]').forEach(btn=>btn.addEventListener('click',()=>reviewManualWithdrawal(btn.dataset.id,btn.dataset.manualWithdrawal)));
     $('#save-manual-deposit-instructions')?.addEventListener('click',async()=>{
       const instructions=$('#manual-deposit-instructions').value.trim();
       if(!confirm(instructions?'Publish these external payment instructions for signed-in members?':'Clear the external deposit instructions? This will disable new deposit requests.'))return;
