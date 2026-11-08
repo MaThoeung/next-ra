@@ -556,8 +556,8 @@ async function renderAdmin() {
       ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable internal pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
     </section>
     ${isSuper?`<div class="page-spacer"></div><section class="card section-card"><h3>Swap fee configuration</h3><p>Fee changes are recorded in the admin audit log. The configured fee is applied to completed internal swaps. No external exchange or blockchain fee is charged.</p>
-      <div class="security-row"><div><strong>Current swap fee</strong><span>${fee?`${money(fee.fee_value,2)}% · effective ${fmtDate(fee.effective_from)}`:'Not configured'}</span></div>${statusPill(fee?'approved':'pending')}</div>
-      <div class="form-field"><label class="field-label" for="swap-fee-percent">New swap fee (%)</label><input id="swap-fee-percent" class="form-control" type="number" min="0" max="10" step="0.01" value="${fee?escapeHtml(String(fee.fee_value)):''}" placeholder="Enter 0–10" /></div>
+      <div class="security-row"><div><strong>Current swap fee</strong><span>${fee?`${money(fee.fee_value,2)}% · effective ${fmtDate(fee.effective_from)}`:'Not configured · minimum allowed is 0.05%'}</span></div>${statusPill(fee?'approved':'pending')}</div>
+      <div class="form-field"><label class="field-label" for="swap-fee-percent">New swap fee (%)</label><input id="swap-fee-percent" class="form-control" type="number" min="0.05" max="10" step="0.01" value="${fee?escapeHtml(String(fee.fee_value)):''}" placeholder="Enter 0.05–10" /></div>
       <button class="primary-button" id="save-swap-fee" style="margin-top:12px">Save swap fee configuration →</button>
     </section>`:`<section class="card section-card"><h3>Swap fee configuration</h3><p>${fee?`Current configured fee: ${money(fee.fee_value,2)}%.`:'No swap fee has been configured.'} Contact the Super Admin to make changes.</p></section>`}
     <div class="page-spacer"></div>
@@ -895,7 +895,7 @@ function bindPageEvents(page) {
     }));
     $('#save-swap-fee')?.addEventListener('click',async()=>{
       const fee=Number($('#swap-fee-percent').value);
-      if(!Number.isFinite(fee)||fee<0||fee>10)return toast('Enter a swap fee between 0 and 10 percent.','error');
+      if(!Number.isFinite(fee)||fee<0.05||fee>10)return toast('Enter a swap fee between 0.05% and 10%. The minimum is 0.05% per transaction.','error');
       if(!confirm(`Save the swap fee as ${fee}%? This fee will apply to completed internal simulated swaps.`))return;
       const btn=$('#save-swap-fee');btn.disabled=true;btn.textContent='Saving…';
       const {data,error}=await supabase.functions.invoke('admin-trading-settings',{body:{action:'set_swap_fee',fee_percent:fee}});
