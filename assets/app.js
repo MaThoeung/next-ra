@@ -376,22 +376,29 @@ function renderBalanceTable(rows, emptyTitle) {
   return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Account type</th><th>Balance</th><th>USD reference</th></tr></thead><tbody>${visible.map(r=>{const p=priceOf(r.asset_code);return `<tr><td><strong>${escapeHtml(r.asset_code)}</strong></td><td class="table-muted">${escapeHtml(r.account_kind)}</td><td>${money(r.balance,8)}</td><td>${p==null?'—':fmtPrice(Number(r.balance)*p)}</td></tr>`;}).join('')}</tbody></table></div>`;
 }
 async function renderDeposit() {
-  const [{data:assets,error:assetError},{data:history,error:historyError}]=await Promise.all([
+  const [{data:assets,error:assetError},{data:history,error:historyError},{data:instructionsData,error:instructionsError}]=await Promise.all([
     supabase.from('assets').select('code,name,kind,decimals').eq('is_active',true).order('display_order'),
     supabase.from('deposits').select('id,asset_code,amount,transaction_hash,status,created_at,rejection_reason')
-      .eq('user_id',state.user.id).eq('network_code','MANUAL').order('created_at',{ascending:false}).limit(15)
+      .eq('user_id',state.user.id).eq('network_code','MANUAL').order('created_at',{ascending:false}).limit(15),
+    supabase.functions.invoke('manual-settlement',{body:{action:'get_deposit_instructions'}})
   ]);
+  const depositInstructions=String(instructionsData?.instructions||'').trim();
+  const depositInstructionsConfigured=Boolean(instructionsData?.configured&&depositInstructions);
   const options=(assets||[]).map(a=>`<option value="${escapeHtml(a.code)}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
   const rows=history||[];
   return `${heading('Deposit','Request an internal wallet credit after an external payment has been completed.')}
     <div class="alert-banner"><span class="notice-icon">!</span><div><strong>Manual external settlement only</strong>Make the payment outside NEXT-RA using payment instructions provided by the platform operator. Then submit the payment reference here. Your wallet is credited only after an authorised Finance Admin or Super Admin verifies that the external payment was received. No bank, payment gateway or blockchain is connected to this website.</div></div>
+    <section class="card section-card" style="margin-bottom:16px"><div class="panel-head"><div><h3 style="margin:0">Official external payment instructions</h3><div class="panel-subtitle">Use these details only after independently confirming they are current and authorised.</div></div>${statusPill(depositInstructionsConfigured?'approved':'pending')}</div>
+      ${depositInstructionsConfigured?`<div class="manual-instructions-text">${escapeHtml(depositInstructions)}</div>`:`<div class="alert-banner" style="margin:0"><span class="notice-icon">!</span><div><strong>Payment instructions are not configured yet</strong>The platform administrator must publish the official bank or external payment instructions before deposit requests can be submitted. Do not transfer funds based on unofficial messages.</div></div>`}
+      ${instructionsError?`<div class="security-note">Could not retrieve payment instructions: ${escapeHtml(instructionsError.message||'Service unavailable')}</div>`:''}
+    </section>
     <div class="two-col"><section class="card section-card"><h3>Submit a deposit request</h3><p>Submit one request per external transfer. Do not submit a request until you have completed the external payment.</p>
       <form id="manual-deposit-form" class="form-grid">
         <div class="form-field"><label class="field-label" for="manual-deposit-asset">Asset to credit</label><select class="form-control select-control" id="manual-deposit-asset" required>${options}</select></div>
         <div class="form-field"><label class="field-label" for="manual-deposit-amount">Amount</label><input class="form-control" id="manual-deposit-amount" type="number" min="0.00000001" step="any" required placeholder="Enter amount"/></div>
         <div class="form-field full"><label class="field-label" for="manual-deposit-reference">External payment reference</label><input class="form-control" id="manual-deposit-reference" type="text" minlength="4" maxlength="160" required placeholder="Bank transfer reference / external transaction ID"/></div>
         <div class="form-field full"><label class="field-label" for="manual-deposit-memo">Additional note (optional)</label><textarea class="form-control" id="manual-deposit-memo" rows="3" maxlength="500" placeholder="Payment date, sender details or other context"></textarea></div>
-        <div class="form-field full"><button class="primary-button" id="manual-deposit-submit" type="submit">Submit deposit for verification →</button></div>
+        <div class="form-field full"><button class="primary-button" id="manual-deposit-submit" type="submit" ${depositInstructionsConfigured?'':'disabled'}>Submit deposit for verification →</button></div>
       </form>
       ${assetError?'<div class="security-note">The supported asset list could not be loaded.</div>':''}
     </section><aside class="card section-card"><h3>How external settlement works</h3>
@@ -561,6 +568,11 @@ async function renderAdmin() {
     <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Manual withdrawal requests</div><div class="panel-subtitle">Make the external payout first, then mark it completed with the payment reference.</div></div><span class="status-pill pending">${withdrawalRows.length} pending</span></div>
       ${withdrawalRows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Asset / amount</th><th>Destination</th><th>Submitted</th><th>Action</th></tr></thead><tbody>${withdrawalRows.map(row=>`<tr><td>${escapeHtml(row.email||shortId(row.user_id))}</td><td><strong>${money(row.amount,8)} ${escapeHtml(row.asset_code)}</strong><div class="table-muted">Net: ${money(row.net_amount,8)} · Fee: ${money(row.fee_amount,8)}</div></td><td class="table-muted" style="white-space:normal;max-width:240px">${escapeHtml(row.destination_address)}</td><td>${fmtDate(row.created_at)}</td><td>${canReviewMoney?`<div class="row-actions"><button class="small-button approve" data-manual-withdrawal="complete" data-id="${escapeHtml(row.id)}">Mark paid</button><button class="small-button reject" data-manual-withdrawal="reject" data-id="${escapeHtml(row.id)}">Reject &amp; refund</button></div>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pending withdrawal requests','New external payout requests will appear here for manual review.')}
     </section>
+    ${canReviewMoney?`<div class="page-spacer"></div><section class="card section-card"><h3>External deposit instructions</h3><p>Publish the exact bank transfer or external payment instructions shown to authenticated members. No bank/payment provider is connected to NEXT-RA.</p>
+      <div class="form-field"><label class="field-label" for="manual-deposit-instructions">Payment instructions</label><textarea class="form-control" id="manual-deposit-instructions" rows="5" maxlength="3000" placeholder="Bank name, beneficiary, account number, currency, payment purpose and required reference…">${escapeHtml(String(settings.manual_deposit_instructions?.text||''))}</textarea></div>
+      <button class="primary-button" id="save-manual-deposit-instructions" style="margin-top:12px">Save deposit instructions →</button>
+      <div class="security-note" style="margin-top:9px">Changes are audited. Members can see these instructions only after signing in. Deposit requests remain pending until Finance verifies actual receipt.</div>
+    </section>`:''}
     <div class="page-spacer"></div>
     <div class="two-col"><section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">KYC review queue</h3><div class="panel-subtitle">Identity documents requiring review</div></div><span class="status-pill pending">${kycRows.length} pending</span></div>
       ${kycRows.length?kycRows.map(k=>`<div class="admin-kyc-row"><div><strong>${escapeHtml(k.email||shortId(k.user_id))}</strong><span>Submitted ${fmtDate(k.submitted_at)} · ${k.documents?.length||0} document(s)</span><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">${(k.documents||[]).map(doc=>doc.signed_url?`<a class="small-button" href="${escapeHtml(doc.signed_url)}" target="_blank" rel="noopener">View ${escapeHtml(doc.document_type)}</a>`:'').join('')}</div></div><div class="row-actions"><button class="small-button approve" data-kyc-review="approved" data-kyc-id="${escapeHtml(k.id)}">Approve</button><button class="small-button reject" data-kyc-review="rejected" data-kyc-id="${escapeHtml(k.id)}">Reject</button></div></div>`).join('') : emptyState('No pending KYC reviews','New submissions will appear here once members submit documents.')}
@@ -859,6 +871,18 @@ function bindPageEvents(page) {
     $('#open-invite-admin')?.addEventListener('click',openAdminInviteModal);
     $('[data-manual-deposit]').forEach(btn=>btn.addEventListener('click',()=>reviewManualDeposit(btn.dataset.id,btn.dataset.manualDeposit)));
     $('[data-manual-withdrawal]').forEach(btn=>btn.addEventListener('click',()=>reviewManualWithdrawal(btn.dataset.id,btn.dataset.manualWithdrawal)));
+    $('#save-manual-deposit-instructions')?.addEventListener('click',async()=>{
+      const instructions=$('#manual-deposit-instructions').value.trim();
+      if(!confirm(instructions?'Publish these external payment instructions for signed-in members?':'Clear the external deposit instructions? This will disable new deposit requests.'))return;
+      const button=$('#save-manual-deposit-instructions');button.disabled=true;button.textContent='Saving…';
+      try{
+        const {data,error}=await supabase.functions.invoke('admin-manual-settlement',{body:{action:'set_deposit_instructions',instructions}});
+        if(error)throw error;
+        if(!data?.success)throw new Error(data?.error||'Could not save instructions.');
+        toast('External deposit instructions saved and audited.','success');
+        await renderPage('admin');
+      }catch(error){toast(error.message||'Could not save instructions.','error');button.disabled=false;button.textContent='Save deposit instructions →';}
+    });
     $$('[data-kyc-review]').forEach(btn=>btn.addEventListener('click',()=>reviewKyc(btn.dataset.kycId,btn.dataset.kycReview)));
     $$('[data-admin-pair-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{
       const enabled=btn.dataset.enabled!=='true';
