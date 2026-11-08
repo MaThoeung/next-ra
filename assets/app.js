@@ -38,7 +38,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 const state = {
   user: null, session: null, profile: null, roles: [], aal: 'aal1',
   page: 'dashboard', markets: [], marketsUpdatedAt: 0, marketError: false,
-  balances: [], adminOverview: null, notifications: []
+  balances: [], adminOverview: null, notifications: [], tradingPairs: []
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -316,16 +316,37 @@ async function renderMarkets() {
 
 async function renderSwap() {
   await loadMarkets();
-  const opts = state.markets.map(c=>`<option value="${escapeHtml(c.symbol.toUpperCase())}">${escapeHtml(c.symbol.toUpperCase())} · ${escapeHtml(c.name)}</option>`).join('');
-  return `${heading('Swap','Preview an estimated conversion between supported market assets.')}
-    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Swap execution is not enabled</strong>This screen currently provides an indicative conversion preview only. No order will be submitted and no wallet balance will change.</div></div>
-    <div class="two-col"><section class="card section-card"><h3>Conversion preview</h3><p>Enter an amount and select the assets to view an indicative USD-based estimate.</p>
-      <div class="swap-box"><div class="swap-box-top"><span>You send</span><span id="swap-send-usd">≈ $0.00</span></div><div class="swap-input-row"><input id="swap-amount" type="number" min="0" step="any" value="1" aria-label="Amount to swap"/><select id="swap-from" class="asset-select">${opts}</select></div></div>
+  const { data: pairs, error } = await supabase.from('trading_pairs')
+    .select('base_asset_code,quote_asset_code,display_order')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true });
+  if (error) {
+    return `${heading('Swap','Indicative conversion preview for configured trading pairs.')}
+      <div class="alert-banner"><span class="notice-icon">!</span><div><strong>Trading configuration unavailable</strong>Could not load the administrator-approved trading pairs. Please try again later.</div></div>`;
+  }
+  state.tradingPairs = pairs || [];
+  if (!state.tradingPairs.length) {
+    return `${heading('Swap','Indicative conversion preview for configured trading pairs.')}
+      <div class="alert-banner"><span class="notice-icon">i</span><div><strong>No trading pairs are enabled</strong>The Super Admin must enable one or more pairs in Admin Console before a quote can be calculated. Swap execution remains disabled.</div></div>
+      <section class="card section-card">${emptyState('Swap is not configured yet','No balances or assets will be moved. Configure a pair in the Admin Console after completing two-factor authentication.','⇄')}</section>`;
+  }
+  const first = state.tradingPairs[0];
+  const codes = [...new Set(state.tradingPairs.flatMap(p => [p.base_asset_code,p.quote_asset_code]))];
+  const opts = (selected) => codes.map(code => `<option value="${escapeHtml(code)}" ${code===selected?'selected':''}>${escapeHtml(code)}</option>`).join('');
+  return `${heading('Swap','Preview an estimated conversion using administrator-enabled pairs.')}
+    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Preview only — execution is not enabled</strong>Market prices are indicative. No swap order is submitted, no ledger entry is posted and no wallet balance changes.</div></div>
+    <div class="two-col"><section class="card section-card"><h3>Conversion preview</h3><p>Select an enabled pair and enter an amount to calculate an indicative estimate.</p>
+      <div class="swap-box"><div class="swap-box-top"><span>You send</span><span id="swap-send-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-amount" type="number" min="0" step="any" value="1" aria-label="Amount to swap"/><select id="swap-from" class="asset-select">${opts(first.base_asset_code)}</select></div></div>
       <button class="swap-direction" id="swap-reverse" aria-label="Reverse assets">↕</button>
-      <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts}</select></div></div>
-      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Fee</span><strong>Not configured</strong></div><div class="detail-row"><span>Execution status</span><strong class="negative">Disabled</strong></div></div>
+      <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts(first.quote_asset_code)}</select></div></div>
+      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Fee</span><strong>Not charged in preview</strong></div><div class="detail-row"><span>Execution status</span><strong class="negative">Preview only</strong></div></div>
       <button class="primary-button" id="get-swap-quote" style="width:100%">Calculate preview</button>
-    </section><aside class="card section-card"><h3>Before you swap</h3><p>The platform's settlement and trading controls are intentionally kept inactive while the exchange engine is being completed.</p><div class="security-row"><div><strong>Market reference</strong><span>Public market data feed</span></div><span class="status-pill approved">Connected</span></div><div class="security-row"><div><strong>Trading pairs</strong><span>Awaiting admin configuration</span></div><span class="status-pill pending">Pending</span></div><div class="security-row"><div><strong>Fee schedule</strong><span>Awaiting admin configuration</span></div><span class="status-pill pending">Pending</span></div><div class="security-row"><div><strong>Ledger execution</strong><span>Server-side settlement workflow</span></div><span class="status-pill pending">Locked</span></div></aside></div>`;
+    </section><aside class="card section-card"><h3>Swap controls</h3><p>Only active pairs configured by the Super Admin are available here.</p>
+      <div class="security-row"><div><strong>Market reference</strong><span>CoinGecko public market data</span></div><span class="status-pill ${state.markets.length?'approved':'pending'}">${state.markets.length?'Connected':'Unavailable'}</span></div>
+      <div class="security-row"><div><strong>Enabled trading pairs</strong><span>${state.tradingPairs.length} pair(s)</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>Ledger execution</strong><span>Internal settlement workflow not released</span></div>${statusPill('pending')}</div>
+      <div class="security-note">Real swaps require approved fees, sufficient treasury liquidity, funded user balances, reconciliation and server-side settlement tests.</div>
+    </aside></div>`;
 }
 
 async function renderWallets() {
@@ -424,13 +445,45 @@ async function renderAdmin() {
   const isSuper=state.roles.includes('super_admin');
   const kycRows=data.pending_kyc||[];
   const invites=data.pending_invitations||[];
-  return `${heading('Admin console','Governance, verification and platform operations.',isSuper?`<button class="primary-button" id="open-invite-admin">+ Invite administrator</button>`:'')}
-    <div class="grid admin-metric-grid"><div class="card admin-metric"><span>Total registered users</span><strong>${m.users??'—'}</strong></div><div class="card admin-metric"><span>Pending KYC reviews</span><strong>${m.pending_kyc??'—'}</strong></div><div class="card admin-metric"><span>Pending deposits</span><strong>${m.pending_deposits??'—'}</strong></div><div class="card admin-metric"><span>Pending withdrawals</span><strong>${m.pending_withdrawals??'—'}</strong></div></div>
+  const pairs=data.trading_pairs||[];
+  const fee=data.active_swap_fee||null;
+  const settings=data.system_settings||{};
+  const systemValue=(key)=>settings[key]===undefined?'Not configured':String(settings[key]);
+  return `${heading('Admin console','Governance, system health, market configuration and compliance.',isSuper?`<button class="primary-button" id="open-invite-admin">+ Invite administrator</button>`:'')}
+    <div class="grid admin-metric-grid"><div class="card admin-metric"><span>Total registered users</span><strong>${m.users??'—'}</strong></div><div class="card admin-metric"><span>Pending KYC reviews</span><strong>${m.pending_kyc??'—'}</strong></div><div class="card admin-metric"><span>Pending deposits</span><strong>${m.pending_deposits??'—'}</strong></div><div class="card admin-metric"><span>Pending withdrawals</span><strong>${m.pending_withdrawals??'—'}</strong></div><div class="card admin-metric"><span>Swap orders</span><strong>${m.swap_orders??'—'}</strong></div><div class="card admin-metric"><span>Posted ledger transactions</span><strong>${m.posted_ledger_transactions??'—'}</strong></div></div>
+    <div class="two-col">
+      <section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">System safety status</h3><div class="panel-subtitle">Live configuration read from the database</div></div></div>
+        <div class="security-row"><div><strong>Settlement mode</strong><span>${escapeHtml(systemValue('settlement_mode'))}</span></div>${statusPill(settings.settlement_mode==='internal_ledger_only'?'approved':'pending')}</div>
+        <div class="security-row"><div><strong>On-chain deposits</strong><span>Blockchain deposit integration</span></div>${statusPill(settings.onchain_deposits_enabled===true?'pending':'approved')}</div>
+        <div class="security-row"><div><strong>On-chain withdrawals</strong><span>Blockchain signing and payout integration</span></div>${statusPill(settings.onchain_withdrawals_enabled===true?'pending':'approved')}</div>
+        <div class="security-row"><div><strong>Market data</strong><span>Public price reference feed</span></div>${statusPill(state.marketError?'pending':'approved')}</div>
+      </section>
+      <section class="card section-card"><h3>Administrator access</h3><p>Privileged controls require a Super Admin role and an AAL2 verified session.</p>
+        <div class="security-row"><div><strong>Your role</strong><span>${escapeHtml(state.roles.join(', ').replaceAll('_',' '))}</span></div>${statusPill('approved')}</div>
+        <div class="security-row"><div><strong>Session assurance</strong><span>${escapeHtml(state.aal)}</span></div>${statusPill(state.aal==='aal2'?'approved':'pending')}</div>
+        <div class="security-row"><div><strong>Supported assets</strong><span>${(data.assets||[]).length} configured assets</span></div>${statusPill('approved')}</div>
+        <div class="security-row"><div><strong>Active trading pairs</strong><span>${pairs.filter(p=>p.is_active).length} of ${pairs.length}</span></div>${statusPill(pairs.some(p=>p.is_active)?'approved':'pending')}</div>
+      </section>
+    </div>
+    <div class="page-spacer"></div>
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair makes it available for preview quotes only; it does not enable execution.</div></div></div>
+      ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable preview pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
+    </section>
+    ${isSuper?`<div class="page-spacer"></div><section class="card section-card"><h3>Swap fee configuration</h3><p>Fee changes are recorded in the admin audit log. This fee is configuration only; no fee is collected while swap execution is disabled.</p>
+      <div class="security-row"><div><strong>Current swap fee</strong><span>${fee?`${money(fee.fee_value,2)}% · effective ${fmtDate(fee.effective_from)}`:'Not configured'}</span></div>${statusPill(fee?'approved':'pending')}</div>
+      <div class="form-field"><label class="field-label" for="swap-fee-percent">New swap fee (%)</label><input id="swap-fee-percent" class="form-control" type="number" min="0" max="10" step="0.01" value="${fee?escapeHtml(String(fee.fee_value)):''}" placeholder="Enter 0–10" /></div>
+      <button class="primary-button" id="save-swap-fee" style="margin-top:12px">Save swap fee configuration →</button>
+    </section>`:`<section class="card section-card"><h3>Swap fee configuration</h3><p>${fee?`Current configured fee: ${money(fee.fee_value,2)}%.`:'No swap fee has been configured.'} Contact the Super Admin to make changes.</p></section>`}
+    <div class="page-spacer"></div>
     <div class="two-col"><section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">KYC review queue</h3><div class="panel-subtitle">Identity documents requiring review</div></div><span class="status-pill pending">${kycRows.length} pending</span></div>
       ${kycRows.length?kycRows.map(k=>`<div class="admin-kyc-row"><div><strong>${escapeHtml(k.email||shortId(k.user_id))}</strong><span>Submitted ${fmtDate(k.submitted_at)} · ${k.documents?.length||0} document(s)</span><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">${(k.documents||[]).map(doc=>doc.signed_url?`<a class="small-button" href="${escapeHtml(doc.signed_url)}" target="_blank" rel="noopener">View ${escapeHtml(doc.document_type)}</a>`:'').join('')}</div></div><div class="row-actions"><button class="small-button approve" data-kyc-review="approved" data-kyc-id="${escapeHtml(k.id)}">Approve</button><button class="small-button reject" data-kyc-review="rejected" data-kyc-id="${escapeHtml(k.id)}">Reject</button></div></div>`).join('') : emptyState('No pending KYC reviews','New submissions will appear here once members submit documents.')}
-    </section><section class="card section-card"><h3>Admin access control</h3><p>Administrative activity is protected by role assignment and mandatory MFA for sensitive operations.</p><div class="security-row"><div><strong>Your role</strong><span>${escapeHtml(state.roles.join(', ').replaceAll('_',' '))}</span></div>${statusPill('approved')}</div><div class="security-row"><div><strong>Session assurance</strong><span>Current authentication level</span></div>${statusPill('approved')}</div><div class="security-row"><div><strong>Admin hierarchy</strong><span>One Super Admin with delegated subordinate roles</span></div>${statusPill('approved')}</div></section></div>
+    </section><section class="card section-card"><h3>Platform limitations</h3><p>These protections are intentional until custody and settlement controls are independently tested.</p>
+      <div class="security-row"><div><strong>Deposit processing</strong><span>Disabled pending blockchain monitoring</span></div>${statusPill('pending')}</div>
+      <div class="security-row"><div><strong>Withdrawal processing</strong><span>Disabled pending custody and signing</span></div>${statusPill('pending')}</div>
+      <div class="security-row"><div><strong>Swap execution</strong><span>Preview only; no balance movement</span></div>${statusPill('pending')}</div>
+    </section></div>
     ${isSuper?`<div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Pending administrator invitations</div><div class="panel-subtitle">Invitations issued by the Super Admin</div></div></div>${invites.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Email</th><th>Role</th><th>Created</th><th>Expires</th><th>Status</th></tr></thead><tbody>${invites.map(x=>`<tr><td>${escapeHtml(x.email)}</td><td>${escapeHtml(x.role.replaceAll('_',' '))}</td><td>${fmtDate(x.created_at)}</td><td>${fmtDate(x.expires_at)}</td><td>${statusPill(x.status)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pending invitations','New subordinate administrator invitations will appear here.')}</section>`:''}
-    <div class="security-note" style="margin-top:13px">Administrative totals are read from the private server-side overview endpoint. Approvals are audited. Financial execution controls remain disabled.</div>`;
+    <div class="security-note" style="margin-top:13px">Financial and administrative changes are handled server-side and audited. On-chain deposits, withdrawals and live swap execution remain disabled.</div>`;
 }
 
 function openModal(title, description, body, actions='') {
@@ -525,15 +578,53 @@ function bindPageEvents(page) {
     $('#market-search')?.addEventListener('input',()=>{const term=$('#market-search').value.toLowerCase();const items=state.markets.filter(m=>m.name.toLowerCase().includes(term)||m.symbol.toLowerCase().includes(term));$('#market-table-body').innerHTML=items.length?items.map(marketRow).join(''):`<tr><td colspan="5">${emptyState('No matching assets','Try another search term.')}</td></tr>`;});
   }
   if(page==='swap'){
-    const calculate=()=>{const amount=Number($('#swap-amount').value||0),from=$('#swap-from').value,to=$('#swap-to').value,fromPrice=priceOf(from),toPrice=priceOf(to);if(amount<=0||fromPrice==null||toPrice==null){$('#swap-estimate').value='—';$('#swap-rate').textContent='—';$('#swap-send-usd').textContent='≈ —';$('#swap-receive-usd').textContent='≈ —';return;}const usd=amount*fromPrice,output=usd/toPrice;$('#swap-estimate').value=output.toFixed(8).replace(/0+$/,'').replace(/\.$/,'');$('#swap-rate').textContent=`1 ${from} ≈ ${money(fromPrice/toPrice,8)} ${to}`;$('#swap-send-usd').textContent=`≈ ${fmtPrice(usd)}`;$('#swap-receive-usd').textContent=`≈ ${fmtPrice(usd)}`;};
-    $('#get-swap-quote')?.addEventListener('click',calculate);$('#swap-amount')?.addEventListener('input',calculate);$('#swap-from')?.addEventListener('change',calculate);$('#swap-to')?.addEventListener('change',calculate);$('#swap-reverse')?.addEventListener('click',()=>{const a=$('#swap-from').value;$('#swap-from').value=$('#swap-to').value;$('#swap-to').value=a;calculate();});calculate();
+    const calculate=()=>{
+      const amount=Number($('#swap-amount').value||0),from=$('#swap-from').value,to=$('#swap-to').value;
+      const fromPrice=priceOf(from),toPrice=priceOf(to);
+      const pairEnabled=state.tradingPairs.some(p=>(p.base_asset_code===from&&p.quote_asset_code===to)||(p.base_asset_code===to&&p.quote_asset_code===from));
+      if(!Number.isFinite(amount)||amount<=0||from===to||!pairEnabled||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
+        $('#swap-estimate').value='—';$('#swap-rate').textContent=pairEnabled?'Waiting for valid amount or market price':'Pair is not enabled';
+        $('#swap-send-usd').textContent='≈ —';$('#swap-receive-usd').textContent='≈ —';return;
+      }
+      const usd=amount*fromPrice,output=usd/toPrice;
+      if(!Number.isFinite(output))return;
+      $('#swap-estimate').value=output.toFixed(8).replace(/0+$/,'').replace(/\.$/,'');
+      $('#swap-rate').textContent=`1 ${from} ≈ ${money(fromPrice/toPrice,8)} ${to}`;
+      $('#swap-send-usd').textContent=`≈ ${fmtPrice(usd)}`;
+      $('#swap-receive-usd').textContent=`≈ ${fmtPrice(usd)}`;
+    };
+    $('#get-swap-quote')?.addEventListener('click',calculate);
+    $('#swap-amount')?.addEventListener('input',calculate);
+    $('#swap-from')?.addEventListener('change',calculate);
+    $('#swap-to')?.addEventListener('change',calculate);
+    $('#swap-reverse')?.addEventListener('click',()=>{const a=$('#swap-from').value;$('#swap-from').value=$('#swap-to').value;$('#swap-to').value=a;calculate();});
+    calculate();
   }
   if(page==='kyc')$('#kyc-form')?.addEventListener('submit',submitKyc);
   if(page==='security')$('#setup-mfa')?.addEventListener('click',startMfaSetup);
   if(page==='referrals')$('#copy-referral')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#referral-code').value);toast('Referral code copied.','success');}catch{toast('Copy is not available in this browser.','error');}});
   if(page==='admin'){
     $('#open-invite-admin')?.addEventListener('click',openAdminInviteModal);
-    $$('[data-kyc-review]').forEach(btn=>btn.addEventListener('click',()=>reviewKyc(btn.dataset.kycId,btn.dataset.kycReview)));
+    $('[data-kyc-review]').forEach(btn=>btn.addEventListener('click',()=>reviewKyc(btn.dataset.kycId,btn.dataset.kycReview)));
+    $('[data-admin-pair-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const enabled=btn.dataset.enabled!=='true';
+      if(!confirm(`${enabled?'Enable':'Disable'} this pair for preview quotes? This does not turn on real swap execution.`))return;
+      btn.disabled=true;
+      const {data,error}=await supabase.functions.invoke('admin-trading-settings',{body:{action:'set_pair_enabled',pair_id:btn.dataset.adminPairToggle,enabled}});
+      if(error){btn.disabled=false;return toast(error.message||'Could not update trading pair.','error');}
+      toast(enabled?'Preview pair enabled.':'Preview pair disabled.','success');
+      await renderPage('admin');
+    }));
+    $('#save-swap-fee')?.addEventListener('click',async()=>{
+      const fee=Number($('#swap-fee-percent').value);
+      if(!Number.isFinite(fee)||fee<0||fee>10)return toast('Enter a swap fee between 0 and 10 percent.','error');
+      if(!confirm(`Save the swap fee as ${fee}%? This will not collect fees until swap execution is enabled.`))return;
+      const btn=$('#save-swap-fee');btn.disabled=true;btn.textContent='Saving…';
+      const {data,error}=await supabase.functions.invoke('admin-trading-settings',{body:{action:'set_swap_fee',fee_percent:fee}});
+      if(error){btn.disabled=false;btn.textContent='Save swap fee configuration →';return toast(error.message||'Could not save swap fee.','error');}
+      toast('Swap fee configuration saved and audited.','success');
+      await renderPage('admin');
+    });
   }
 }
 
