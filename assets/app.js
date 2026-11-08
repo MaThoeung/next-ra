@@ -537,6 +537,7 @@ async function renderAdmin() {
         <div class="security-row"><div><strong>Settlement mode</strong><span>${escapeHtml(systemValue('settlement_mode'))}</span></div>${statusPill(settings.settlement_mode==='internal_ledger_only'?'approved':'pending')}</div>
         <div class="security-row"><div><strong>On-chain deposits</strong><span>Blockchain deposit integration</span></div>${statusPill(settings.onchain_deposits_enabled===true?'pending':'approved')}</div>
         <div class="security-row"><div><strong>On-chain withdrawals</strong><span>Blockchain signing and payout integration</span></div>${statusPill(settings.onchain_withdrawals_enabled===true?'pending':'approved')}</div>
+        <div class="security-row"><div><strong>Internal swap execution</strong><span>${settings.swap_execution_enabled===true?'Enabled after fee configuration':'Disabled until Super Admin saves a fee of at least 0.05%'}</span></div>${statusPill(settings.swap_execution_enabled===true?'approved':'pending')}</div>
         <div class="security-row"><div><strong>Market data</strong><span>Public price reference feed</span></div>${statusPill(state.marketError?'pending':'approved')}</div>
       </section>
       <section class="card section-card"><h3>Administrator access</h3><p>Privileged controls require a Super Admin role and an AAL2 verified session.</p>
