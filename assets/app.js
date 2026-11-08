@@ -326,40 +326,35 @@ function renderSwapMarketLeaderboard() {
 async function renderSwap() {
   await loadMarkets();
   await loadBalances();
-  const { data: pairs, error } = await supabase.from('trading_pairs')
-    .select('base_asset_code,quote_asset_code,display_order')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true });
-  if (error) {
-    return `${heading('Swap','Indicative conversion preview for configured trading pairs.')}
-      <div class="alert-banner"><span class="notice-icon">!</span><div><strong>Trading configuration unavailable</strong>Could not load the administrator-approved trading pairs. Please try again later.</div></div>`;
-  }
-  state.tradingPairs = pairs || [];
-  if (!state.tradingPairs.length) {
-    return `${heading('Swap','Indicative conversion preview for configured trading pairs.')}
-      <div class="alert-banner"><span class="notice-icon">i</span><div><strong>No trading pairs are enabled</strong>The Super Admin must enable one or more pairs in Admin Console before a quote can be calculated. Swap execution remains disabled.</div></div>
-      <section class="card section-card">${emptyState('Swap is not configured yet','No balances or assets will be moved. Configure a pair in the Admin Console after completing two-factor authentication.','⇄')}</section>`;
-  }
-  const first = state.tradingPairs[0];
-  const codes = [...new Set(state.tradingPairs.flatMap(p => [p.base_asset_code,p.quote_asset_code]))];
-  const opts = (selected) => codes.map(code => `<option value="${escapeHtml(code)}" ${code===selected?'selected':''}>${escapeHtml(code)}</option>`).join('');
-  return `${heading('Swap','Preview an estimated conversion using administrator-enabled pairs.')}
-    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Preview only — execution is not enabled</strong>Market prices are indicative. No swap order is submitted, no ledger entry is posted and no wallet balance changes.</div></div>
-    <div class="two-col"><section class="card section-card"><h3>Conversion preview</h3><p>Select an enabled pair and enter an amount to calculate an indicative estimate.</p>
-      <div class="swap-box"><div class="swap-box-top"><span>You send</span><span id="swap-send-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-amount" type="number" min="0" step="any" value="1" aria-label="Amount to swap"/><select id="swap-from" class="asset-select">${opts(first.base_asset_code)}</select></div></div>
+  const marketAssets = state.markets.slice(0,10).filter(c => c.symbol && Number(c.current_price) > 0);
+  const codes = ['USD', ...marketAssets.map(c => String(c.symbol).toUpperCase())];
+  const uniqueCodes = [...new Set(codes)];
+  const opts = (selected) => uniqueCodes.map(code => {
+    const coin = marketAssets.find(c => String(c.symbol).toUpperCase() === code);
+    const label = code === 'USD' ? 'USD — US Dollar' : `${coin?.name || code} (${code})`;
+    return `<option value="${escapeHtml(code)}" ${code===selected?'selected':''}>${escapeHtml(label)}</option>`;
+  }).join('');
+  const firstCoin = marketAssets.find(c => String(c.symbol).toUpperCase() === 'BTC') || marketAssets[0];
+  const firstCode = firstCoin ? String(firstCoin.symbol).toUpperCase() : 'USD';
+  const secondCode = firstCode === 'USD' ? (uniqueCodes[1] || 'USD') : 'USD';
+  return `${heading('Swap','Convert between USD and supported cryptocurrencies using live public market reference prices.')}
+    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Internal exchange — indicative quote only</strong>Prices are referenced from public market data and displayed in USD. This preview does not contact an external exchange, blockchain or payment provider. No funds move until the internal ledger settlement workflow is released and tested.</div></div>
+    <div class="two-col"><section class="card section-card"><h3>Conversion preview</h3><p>USD is the platform's base currency. Choose USD or a supported cryptocurrency to estimate a conversion at the latest available reference price.</p>
+      <div class="swap-box"><div class="swap-box-top"><span>You send</span><span id="swap-send-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-amount" type="number" min="0" step="any" value="100" aria-label="Amount to swap"/><select id="swap-from" class="asset-select">${opts('USD')}</select></div></div>
       <button class="swap-direction" id="swap-reverse" aria-label="Reverse assets">↕</button>
-      <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts(first.quote_asset_code)}</select></div></div>
-      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Available balance</span><strong id="swap-available-balance">—</strong></div><div class="detail-row"><span>Fee</span><strong>Not charged in preview</strong></div><div class="detail-row"><span>Execution status</span><strong class="negative">Preview only</strong></div></div>
-      <button class="primary-button" id="get-swap-quote" style="width:100%">Calculate preview</button>
+      <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts(firstCode)}</select></div></div>
+      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Available balance</span><strong id="swap-available-balance">—</strong></div><div class="detail-row"><span>Estimated fee</span><strong>Not applied in preview</strong></div><div class="detail-row"><span>Settlement</span><strong class="negative">Internal ledger · not released</strong></div></div>
+      <button class="primary-button" id="get-swap-quote" style="width:100%">Calculate USD reference quote</button>
+      <div class="security-note" style="margin-top:12px">A quote is an estimate only. This version cannot execute a trade or change your wallet balance.</div>
     </section><aside class="card section-card swap-market-panel"><div class="panel-head"><div><h3>Top 10 cryptocurrencies</h3><p class="panel-subtitle">Ranked by market capitalization · USD</p></div><button class="small-button" id="refresh-swap-markets" type="button">↻ Refresh</button></div>
       <div class="swap-market-meta"><span class="status-pill ${state.markets.length?'approved':'pending'}">${state.markets.length?'Live feed':'Feed unavailable'}</span><span id="swap-market-updated">${state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Waiting for data'}</span></div>
       <div id="swap-market-leaderboard">${renderSwapMarketLeaderboard()}</div>
-      <div class="security-row"><div><strong>Enabled trading pairs</strong><span>${state.tradingPairs.length} pair(s)</span></div>${statusPill('approved')}</div>
-      <div class="security-row"><div><strong>Ledger execution</strong><span>Internal settlement workflow not released</span></div>${statusPill('pending')}</div>
-      <div class="security-note">Prices are public reference quotes, not executable exchange prices. CoinGecko's public feed is cached and may update every 1–5 minutes. Swap execution remains disabled.</div>
+      <div class="security-row"><div><strong>Base currency</strong><span>USD — United States Dollar</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>Market reference</strong><span>CoinGecko public market data</span></div>${statusPill(state.markets.length?'approved':'pending')}</div>
+      <div class="security-row"><div><strong>Trade settlement</strong><span>Internal ledger workflow under development</span></div>${statusPill('pending')}</div>
+      <div class="security-note">Market prices are real public reference data, not executable exchange prices. The platform does not connect to a live exchange or blockchain.</div>
     </aside></div>`;
 }
-
 async function renderWallets() {
   await loadBalances();
   const grouped = ['exchange','investment'].map(domain=>({domain,rows:state.balances.filter(b=>b.domain===domain)}));
@@ -616,9 +611,10 @@ function bindPageEvents(page) {
       const fromPrice=priceOf(from),toPrice=priceOf(to);
       const available=state.balances.filter(row=>row.domain==='exchange'&&row.account_kind==='available'&&row.asset_code===from).reduce((sum,row)=>sum+Number(row.balance||0),0);
       availableOutput.textContent=`${money(available,8)} ${from}`;
-      const pairEnabled=state.tradingPairs.some(p=>(p.base_asset_code===from&&p.quote_asset_code===to)||(p.base_asset_code===to&&p.quote_asset_code===from));
-      if(!Number.isFinite(amount)||amount<=0||from===to||!pairEnabled||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
-        estimateInput.value='—';rateOutput.textContent=pairEnabled?'Waiting for valid amount or market price':'Pair is not enabled';
+      const supportedCodes=['USD',...state.markets.slice(0,10).map(m=>String(m.symbol||'').toUpperCase())];
+      const pairSupported=supportedCodes.includes(from)&&supportedCodes.includes(to);
+      if(!Number.isFinite(amount)||amount<=0||from===to||!pairSupported||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
+        estimateInput.value='—';rateOutput.textContent=pairSupported?'Waiting for valid amount or market price':'Asset is not supported';
         sendUsd.textContent='≈ —';receiveUsd.textContent='≈ —';return;
       }
       const usd=amount*fromPrice,output=usd/toPrice;
