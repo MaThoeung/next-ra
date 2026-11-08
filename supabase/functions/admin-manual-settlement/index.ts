@@ -33,6 +33,31 @@ Deno.serve(async(req:Request)=>{
     if(!allowed)return json({error:"Only Super Admin or Finance Admin can review manual settlements."},403);
     const body=await req.json();
     const action=String(body.action||"");
+    if(action==="set_deposit_instructions"){
+      const instructions=String(body.instructions||"").trim();
+      if(instructions.length>3000)return json({error:"Deposit instructions must be 3,000 characters or fewer."},400);
+      const {data:previous,error:previousError}=await admin.from("platform_settings")
+        .select("setting_value").eq("setting_key","manual_deposit_instructions").maybeSingle();
+      if(previousError)throw previousError;
+      const {error:saveError}=await admin.from("platform_settings").upsert({
+        setting_key:"manual_deposit_instructions",
+        setting_value:{text:instructions},
+        description:"Platform instructions for external deposits that Finance must manually verify before internal wallet credit.",
+        updated_by:authData.user.id,
+        updated_at:new Date().toISOString()
+      },{onConflict:"setting_key"});
+      if(saveError)throw saveError;
+      const {error:auditError}=await admin.from("admin_audit_logs").insert({
+        actor_user_id:authData.user.id,
+        action:"manual_deposit_instructions_updated",
+        entity_type:"platform_setting",
+        entity_id:"manual_deposit_instructions",
+        before_data:{configured:String(previous?.setting_value?.text||"").trim().length>0},
+        after_data:{configured:instructions.length>0,characters:instructions.length}
+      });
+      if(auditError)console.error("Deposit instructions audit log:",auditError.message);
+      return json({success:true,configured:instructions.length>0});
+    }
     if(action==="review_deposit"){
       const id=String(body.deposit_id||""),decision=String(body.decision||"");
       if(!/^[0-9a-f-]{36}$/i.test(id)||!["approve","reject"].includes(decision))return json({error:"A valid deposit and review decision are required."},400);
