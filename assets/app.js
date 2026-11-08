@@ -272,7 +272,7 @@ async function renderDashboard() {
   const [recentDeposits,recentWithdrawals,recentSwaps,latestKyc] = await Promise.all([
     supabase.from('deposits').select('id,asset_code,amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(4),
     supabase.from('withdrawals').select('id,asset_code,amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(4),
-    supabase.from('swap_orders').select('id,from_asset_code,to_asset_code,from_amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(4),
+    supabase.from('swap_orders').select('id,from_asset_code,to_asset_code,from_amount,received_amount,fee_amount,fee_asset_code,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(4),
     supabase.from('kyc_submissions').select('status').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
   ]);
   const recent = [
@@ -326,33 +326,40 @@ function renderSwapMarketLeaderboard() {
 async function renderSwap() {
   await loadMarkets();
   await loadBalances();
-  const marketAssets = state.markets.slice(0,10).filter(c => c.symbol && Number(c.current_price) > 0);
-  const codes = ['USD', ...marketAssets.map(c => String(c.symbol).toUpperCase())];
-  const uniqueCodes = [...new Set(codes)];
-  const opts = (selected) => uniqueCodes.map(code => {
-    const coin = marketAssets.find(c => String(c.symbol).toUpperCase() === code);
-    const label = code === 'USD' ? 'USD — US Dollar' : `${coin?.name || code} (${code})`;
-    return `<option value="${escapeHtml(code)}" ${code===selected?'selected':''}>${escapeHtml(label)}</option>`;
+  const {data:assets,error:assetError}=await supabase.from('assets')
+    .select('code,name,kind,decimals,is_active')
+    .eq('is_active',true);
+  if(assetError) console.warn('Swap asset list:',assetError.message);
+  const activeAssets=(assets||[]).filter(a=>a.code==='USD'||state.markets.some(m=>String(m.symbol||'').toUpperCase()===a.code));
+  const marketRank=new Map(state.markets.map((m,i)=>[String(m.symbol||'').toUpperCase(),i]));
+  activeAssets.sort((a,b)=>a.code==='USD'?-1:b.code==='USD'?1:(marketRank.get(a.code)??99)-(marketRank.get(b.code)??99));
+  const codes=activeAssets.map(a=>a.code);
+  const opts=(selected)=>activeAssets.map(a=>{
+    const label=a.code==='USD'?'USD — US Dollar':`${a.name} (${a.code})`;
+    return `<option value="${escapeHtml(a.code)}" ${a.code===selected?'selected':''}>${escapeHtml(label)}</option>`;
   }).join('');
-  const firstCoin = marketAssets.find(c => String(c.symbol).toUpperCase() === 'BTC') || marketAssets[0];
-  const firstCode = firstCoin ? String(firstCoin.symbol).toUpperCase() : 'USD';
-  const secondCode = firstCode === 'USD' ? (uniqueCodes[1] || 'USD') : 'USD';
-  return `${heading('Swap','Convert between USD and supported cryptocurrencies using live public market reference prices.')}
-    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Internal exchange — indicative quote only</strong>Prices are referenced from public market data and displayed in USD. This preview does not contact an external exchange, blockchain or payment provider. No funds move until the internal ledger settlement workflow is released and tested.</div></div>
-    <div class="two-col"><section class="card section-card"><h3>Conversion preview</h3><p>USD is the platform's base currency. Choose USD or a supported cryptocurrency to estimate a conversion at the latest available reference price.</p>
+  const firstCode=codes.includes('BTC')?'BTC':(codes.find(c=>c!=='USD')||'USD');
+  return `${heading('Swap','Buy, sell and convert supported cryptocurrencies using real market reference prices in USD.')}
+    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Internal simulated exchange — USD base currency</strong>Market prices are referenced from CoinGecko. Confirmed swaps update NEXT-RA internal balances and ledger records only. No exchange, blockchain, bank or payment network is connected. Internal balances are platform accounting units and are not on-chain assets or guaranteed redeemable funds.</div></div>
+    <div class="two-col"><section class="card section-card"><h3>Convert assets</h3><p>Use USD to buy crypto, sell crypto into USD, or convert one supported coin into another through USD market reference prices.</p>
       <div class="swap-box"><div class="swap-box-top"><span>You send</span><span id="swap-send-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-amount" type="number" min="0" step="any" value="100" aria-label="Amount to swap"/><select id="swap-from" class="asset-select">${opts('USD')}</select></div></div>
       <button class="swap-direction" id="swap-reverse" aria-label="Reverse assets">↕</button>
       <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts(firstCode)}</select></div></div>
-      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Available balance</span><strong id="swap-available-balance">—</strong></div><div class="detail-row"><span>Estimated fee</span><strong>Not applied in preview</strong></div><div class="detail-row"><span>Settlement</span><strong class="negative">Internal ledger · not released</strong></div></div>
-      <button class="primary-button" id="get-swap-quote" style="width:100%">Calculate USD reference quote</button>
-      <div class="security-note" style="margin-top:12px">A quote is an estimate only. This version cannot execute a trade or change your wallet balance.</div>
+      <div class="detail-list" style="margin:17px 0">
+        <div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div>
+        <div class="detail-row"><span>Available balance</span><strong id="swap-available-balance">—</strong></div>
+        <div class="detail-row"><span>Market reference</span><strong>CoinGecko · USD</strong></div>
+      </div>
+      <button class="primary-button" id="get-swap-quote" style="width:100%">Get live swap quote →</button>
+      <div id="swap-quote-result" class="swap-quote-result hidden" aria-live="polite"></div>
+      <div class="security-note" style="margin-top:12px">A quote expires after 60 seconds. Final settlement rechecks current market prices, available balance and the configured fee before posting a balanced ledger transaction.</div>
     </section><aside class="card section-card swap-market-panel"><div class="panel-head"><div><h3>Top 10 cryptocurrencies</h3><p class="panel-subtitle">Ranked by market capitalization · USD</p></div><button class="small-button" id="refresh-swap-markets" type="button">↻ Refresh</button></div>
       <div class="swap-market-meta"><span class="status-pill ${state.markets.length?'approved':'pending'}">${state.markets.length?'Live feed':'Feed unavailable'}</span><span id="swap-market-updated">${state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Waiting for data'}</span></div>
       <div id="swap-market-leaderboard">${renderSwapMarketLeaderboard()}</div>
       <div class="security-row"><div><strong>Base currency</strong><span>USD — United States Dollar</span></div>${statusPill('approved')}</div>
-      <div class="security-row"><div><strong>Market reference</strong><span>CoinGecko public market data</span></div>${statusPill(state.markets.length?'approved':'pending')}</div>
-      <div class="security-row"><div><strong>Trade settlement</strong><span>Internal ledger workflow under development</span></div>${statusPill('pending')}</div>
-      <div class="security-note">Market prices are real public reference data, not executable exchange prices. The platform does not connect to a live exchange or blockchain.</div>
+      <div class="security-row"><div><strong>Internal settlement</strong><span>Double-entry ledger · atomic posting</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>External exchange / blockchain</strong><span>Not connected by design</span></div>${statusPill('pending')}</div>
+      <div class="security-note">Market prices are public reference data. Swap values are internal simulated accounting units; they are not matched or hedged on an external exchange.</div>
     </aside></div>`;
 }
 async function renderWallets() {
@@ -591,30 +598,26 @@ function bindPageEvents(page) {
     $('#market-search')?.addEventListener('input',()=>{const term=$('#market-search').value.toLowerCase();const items=state.markets.filter(m=>m.name.toLowerCase().includes(term)||m.symbol.toLowerCase().includes(term));$('#market-table-body').innerHTML=items.length?items.map(marketRow).join(''):`<tr><td colspan="5">${emptyState('No matching assets','Try another search term.')}</td></tr>`;});
   }
   if(page==='swap'){
-    const refreshSwapMarkets=async()=>{
-      const button=$('#refresh-swap-markets'); if(button){button.disabled=true;button.textContent='Loading…';}
-      await loadMarkets(true);
-      const list=$('#swap-market-leaderboard'); if(list)list.innerHTML=renderSwapMarketLeaderboard();
-      const updated=$('#swap-market-updated'); if(updated)updated.textContent=state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Unavailable';
-      if(button){button.disabled=false;button.textContent='↻ Refresh';}
-    };
-    $('#refresh-swap-markets')?.addEventListener('click',refreshSwapMarkets);
-    state.swapMarketRefreshTimer=setInterval(refreshSwapMarkets,60000);
-    // The empty-state view intentionally has no quote controls until an admin enables a pair.
     const amountInput=$('#swap-amount'),fromSelect=$('#swap-from'),toSelect=$('#swap-to');
     const estimateInput=$('#swap-estimate'),rateOutput=$('#swap-rate');
     const availableOutput=$('#swap-available-balance');
     const sendUsd=$('#swap-send-usd'),receiveUsd=$('#swap-receive-usd');
+    const quoteButton=$('#get-swap-quote'),quotePanel=$('#swap-quote-result');
+    let activeQuote=null,expiryTimer=null;
+    const clearQuote=()=>{
+      activeQuote=null;
+      if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null;}
+      quotePanel?.classList.add('hidden');
+      if(quotePanel)quotePanel.innerHTML='';
+    };
     const calculate=()=>{
       if(!amountInput||!fromSelect||!toSelect||!estimateInput||!rateOutput||!availableOutput||!sendUsd||!receiveUsd)return;
       const amount=Number(amountInput.value||0),from=fromSelect.value,to=toSelect.value;
       const fromPrice=priceOf(from),toPrice=priceOf(to);
       const available=state.balances.filter(row=>row.domain==='exchange'&&row.account_kind==='available'&&row.asset_code===from).reduce((sum,row)=>sum+Number(row.balance||0),0);
       availableOutput.textContent=`${money(available,8)} ${from}`;
-      const supportedCodes=['USD',...state.markets.slice(0,10).map(m=>String(m.symbol||'').toUpperCase())];
-      const pairSupported=supportedCodes.includes(from)&&supportedCodes.includes(to);
-      if(!Number.isFinite(amount)||amount<=0||from===to||!pairSupported||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
-        estimateInput.value='—';rateOutput.textContent=pairSupported?'Waiting for valid amount or market price':'Asset is not supported';
+      if(!Number.isFinite(amount)||amount<=0||from===to||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
+        estimateInput.value='—';rateOutput.textContent=from===to?'Choose different assets':'Waiting for valid amount or market price';
         sendUsd.textContent='≈ —';receiveUsd.textContent='≈ —';return;
       }
       const usd=amount*fromPrice,output=usd/toPrice;
@@ -624,11 +627,89 @@ function bindPageEvents(page) {
       sendUsd.textContent=`≈ ${fmtPrice(usd)}`;
       receiveUsd.textContent=`≈ ${fmtPrice(usd)}`;
     };
-    $('#get-swap-quote')?.addEventListener('click',calculate);
-    amountInput?.addEventListener('input',calculate);
-    fromSelect?.addEventListener('change',calculate);
-    toSelect?.addEventListener('change',calculate);
-    $('#swap-reverse')?.addEventListener('click',()=>{if(!fromSelect||!toSelect)return;const a=fromSelect.value;fromSelect.value=toSelect.value;toSelect.value=a;calculate();});
+    const requestQuote=async()=>{
+      if(!amountInput||!fromSelect||!toSelect)return;
+      const amount=amountInput.value.trim(),from=fromSelect.value,to=toSelect.value;
+      if(!amount||Number(amount)<=0||from===to)return toast('Enter an amount and choose two different assets.','error');
+      clearQuote();quoteButton.disabled=true;quoteButton.textContent='Getting market quote…';
+      try{
+        const {data,error}=await supabase.functions.invoke('internal-swap',{body:{action:'quote',from_asset_code:from,to_asset_code:to,amount}});
+        if(error)throw error;
+        if(!data?.success||!data.quote)throw new Error(data?.error||'The quote service did not return a quote.');
+        activeQuote=data.quote;
+        const p=data.pricing;
+        estimateInput.value=String(p.net_to_amount);
+        rateOutput.textContent=`1 ${from} ≈ ${money(p.rate,8)} ${to}`;
+        sendUsd.textContent=`≈ ${fmtPrice(p.usd_value)}`;
+        receiveUsd.textContent=`≈ ${fmtPrice(p.usd_value)}`;
+        availableOutput.textContent=`${money(data.available_balance,8)} ${from}`;
+        const expires=Date.parse(data.quote.quote_expires_at);
+        quotePanel.innerHTML=`
+          <div class="swap-quote-head"><strong>Quote summary</strong><span class="status-pill approved">Market quote received</span></div>
+          <div class="detail-list">
+            <div class="detail-row"><span>Send amount</span><strong>${money(data.quote.from_amount,10)} ${escapeHtml(from)}</strong></div>
+            <div class="detail-row"><span>USD reference value</span><strong>${fmtPrice(p.usd_value)}</strong></div>
+            <div class="detail-row"><span>Gross receive</span><strong>${money(p.gross_to_amount,10)} ${escapeHtml(to)}</strong></div>
+            <div class="detail-row"><span>Swap fee (${money(p.fee_rate_percent,2)}%)</span><strong>${money(p.fee_amount,10)} ${escapeHtml(to)}</strong></div>
+            <div class="detail-row"><span>Net receive</span><strong class="positive">${money(p.net_to_amount,10)} ${escapeHtml(to)}</strong></div>
+            <div class="detail-row"><span>Your available balance</span><strong>${money(data.available_balance,10)} ${escapeHtml(from)}</strong></div>
+          </div>
+          <div class="swap-quote-warning ${data.sufficient_balance?'':'error'}">${data.sufficient_balance?'The quote is ready. Confirm to post this internal ledger swap.':'Insufficient available balance. A quote can be viewed, but this swap cannot be executed.'}</div>
+          <div class="swap-quote-expiry" id="swap-quote-expiry">Quote expires in 60 seconds.</div>
+          <button class="primary-button" id="execute-swap" style="width:100%;margin-top:10px" ${data.sufficient_balance?'':'disabled'}>Confirm internal swap →</button>
+          <div class="security-note" style="margin-top:9px">Confirmation changes only your NEXT-RA internal ledger balances. It does not move funds on a blockchain or submit an order to an external exchange.</div>`;
+        quotePanel.classList.remove('hidden');
+        expiryTimer=setInterval(()=>{
+          const remaining=Math.max(0,Math.ceil((expires-Date.now())/1000));
+          const label=$('#swap-quote-expiry');
+          if(label)label.textContent=remaining>0?`Quote expires in ${remaining} seconds.`:'Quote expired. Request a new quote.';
+          const execute=$('#execute-swap');
+          if(execute&&remaining<=0)execute.disabled=true;
+          if(remaining<=0&&expiryTimer){clearInterval(expiryTimer);expiryTimer=null;}
+        },1000);
+        $('#execute-swap')?.addEventListener('click',async()=>{
+          if(!activeQuote||Date.now()>=expires)return toast('Quote expired. Please request a new quote.','error');
+          if(!confirm(`Confirm internal swap: ${amount} ${from} → approximately ${p.net_to_amount} ${to}? This updates only NEXT-RA internal balances and is not an on-chain or external exchange trade.`))return;
+          const btn=$('#execute-swap');btn.disabled=true;btn.textContent='Posting ledger transaction…';
+          try{
+            const {data:execution,error:executionError}=await supabase.functions.invoke('internal-swap',{body:{action:'execute',swap_order_id:activeQuote.id}});
+            if(executionError)throw executionError;
+            if(!execution?.success)throw new Error(execution?.error||'The internal swap could not be completed.');
+            clearQuote();
+            toast('Internal swap completed and ledger posted.','success');
+            await loadBalances();
+            await renderPage('swap');
+          }catch(executionError){
+            const message=executionError.message||'Swap failed.';
+            btn.disabled=false;btn.textContent='Retry confirmation →';
+            toast(message,'error');
+          }
+        });
+      }catch(error){
+        quotePanel.innerHTML=`<div class="swap-quote-warning error">${escapeHtml(error.message||'Unable to create a quote.')}</div>`;
+        quotePanel.classList.remove('hidden');
+        toast(error.message||'Unable to create a quote.','error');
+      }finally{quoteButton.disabled=false;quoteButton.textContent='Get live swap quote →';}
+    };
+    quoteButton?.addEventListener('click',requestQuote);
+    amountInput?.addEventListener('input',()=>{clearQuote();calculate();});
+    fromSelect?.addEventListener('change',()=>{clearQuote();calculate();});
+    toSelect?.addEventListener('change',()=>{clearQuote();calculate();});
+    $('#swap-reverse')?.addEventListener('click',()=>{if(!fromSelect||!toSelect)return;const a=fromSelect.value;fromSelect.value=toSelect.value;toSelect.value=a;clearQuote();calculate();});
+    $('#refresh-swap-markets')?.addEventListener('click',async()=>{
+      const button=$('#refresh-swap-markets');if(button){button.disabled=true;button.textContent='Loading…';}
+      await loadMarkets(true);
+      const list=$('#swap-market-leaderboard');if(list)list.innerHTML=renderSwapMarketLeaderboard();
+      const updated=$('#swap-market-updated');if(updated)updated.textContent=state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Unavailable';
+      if(button){button.disabled=false;button.textContent='↻ Refresh';}
+      calculate();
+    });
+    state.swapMarketRefreshTimer=setInterval(async()=>{
+      await loadMarkets(true);
+      const list=$('#swap-market-leaderboard');if(list)list.innerHTML=renderSwapMarketLeaderboard();
+      const updated=$('#swap-market-updated');if(updated)updated.textContent=state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Unavailable';
+      calculate();
+    },60000);
     calculate();
   }
   if(page==='kyc')$('#kyc-form')?.addEventListener('submit',submitKyc);
