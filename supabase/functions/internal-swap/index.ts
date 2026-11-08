@@ -30,7 +30,8 @@ async function getMarketPrices(codes: string[]) {
   const missing = cryptoCodes.filter(code => !coinIds[code]);
   if (missing.length) throw new Error(`No public market data mapping is configured for: ${missing.join(", ")}.`);
   if (priceCache && priceCache.expiresAt > Date.now() && cryptoCodes.every(code => priceCache!.prices[code] > 0)) {
-    return { prices: { USD: 1, ...priceCache.prices }, updatedAt: priceCache.updatedAt };
+    const cachedPrices: Record<string, number> = { USD: 1, ...priceCache.prices };
+    return { prices: cachedPrices, updatedAt: priceCache.updatedAt };
   }
   const ids = [...new Set(cryptoCodes.map(code => coinIds[code]))];
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(","))}&price_change_percentage=24h`;
@@ -56,7 +57,8 @@ async function getMarketPrices(codes: string[]) {
   }
   const updatedAt = new Date(oldest).toISOString();
   priceCache = { expiresAt: Date.now() + 30_000, prices, updatedAt };
-  return { prices: { USD: 1, ...prices }, updatedAt };
+  const allPrices: Record<string, number> = { USD: 1, ...prices };
+  return { prices: allPrices, updatedAt };
 }
 
 function decimalPlaces(value: string) {
@@ -134,8 +136,11 @@ Deno.serve(async (req: Request) => {
       const feePercent = Number(activeFee?.fee_value ?? 0);
       if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 10) throw new Error("The configured swap fee is invalid.");
 
-      const fromDecimals = (assets || []).find((a: any) => a.code === from).decimals;
-      const toDecimals = (assets || []).find((a: any) => a.code === to).decimals;
+      const fromAsset = (assets || []).find((a: any) => a.code === from);
+      const toAsset = (assets || []).find((a: any) => a.code === to);
+      if (!fromAsset || !toAsset) return json({ error: "One or both assets are not enabled." }, 400);
+      const fromDecimals = Number(fromAsset.decimals);
+      const toDecimals = Number(toAsset.decimals);
       if (decimalPlaces(amountText) > fromDecimals) return json({ error: `${from} supports up to ${fromDecimals} decimal places.` }, 400);
 
       const gross = rounded(amount * fromPrice / toPrice, toDecimals);
