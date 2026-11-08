@@ -378,72 +378,90 @@ function renderBalanceTable(rows, emptyTitle) {
 async function renderDeposit() {
   const [{data:assets,error:assetError},{data:history,error:historyError},{data:instructionsData,error:instructionsError}]=await Promise.all([
     supabase.from('assets').select('code,name,kind,decimals').eq('is_active',true).order('display_order'),
-    supabase.from('deposits').select('id,asset_code,amount,transaction_hash,status,created_at,rejection_reason')
+    supabase.from('deposits').select('id,asset_code,amount,transaction_hash,status,created_at,rejection_reason,memo')
       .eq('user_id',state.user.id).eq('network_code','MANUAL').order('created_at',{ascending:false}).limit(15),
     supabase.functions.invoke('manual-settlement',{body:{action:'get_deposit_instructions'}})
   ]);
-  const depositInstructions=String(instructionsData?.instructions||'').trim();
-  const depositInstructionsConfigured=Boolean(instructionsData?.configured&&depositInstructions);
-  const options=(assets||[]).map(a=>`<option value="${escapeHtml(a.code)}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
+  const instructions=String(instructionsData?.instructions||'').trim();
+  const configured=Boolean(instructionsData?.configured&&instructions);
   const rows=history||[];
-  return `${heading('Deposit','Request an internal wallet credit after an external payment has been completed.')}
-    <div class="alert-banner"><span class="notice-icon">!</span><div><strong>Manual external settlement only</strong>Make the payment outside NEXT-RA using payment instructions provided by the platform operator. Then submit the payment reference here. Your wallet is credited only after an authorised Finance Admin or Super Admin verifies that the external payment was received. No bank, payment gateway or blockchain is connected to this website.</div></div>
-    <section class="card section-card" style="margin-bottom:16px"><div class="panel-head"><div><h3 style="margin:0">Official external payment instructions</h3><div class="panel-subtitle">Use these details only after independently confirming they are current and authorised.</div></div>${statusPill(depositInstructionsConfigured?'approved':'pending')}</div>
-      ${depositInstructionsConfigured?`<div class="manual-instructions-text">${escapeHtml(depositInstructions)}</div>`:`<div class="alert-banner" style="margin:0"><span class="notice-icon">!</span><div><strong>Payment instructions are not configured yet</strong>The platform administrator must publish the official bank or external payment instructions before deposit requests can be submitted. Do not transfer funds based on unofficial messages.</div></div>`}
-      ${instructionsError?`<div class="security-note">Could not retrieve payment instructions: ${escapeHtml(instructionsError.message||'Service unavailable')}</div>`:''}
+  const bankAssets=(assets||[]).filter(a=>a.code==='USD');
+  const cryptoAssets=(assets||[]).filter(a=>a.kind==='crypto'&&a.code!=='USD');
+  const opts=(list)=>list.map(a=>`<option value="${escapeHtml(a.code)}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
+  return `${heading('Deposit','Fund your NEXT-RA account using a USD bank transfer or a cryptocurrency transfer.')}
+    <div class="alert-banner"><span class="notice-icon">!</span><div><strong>External payment with manual verification</strong>Choose a payment channel, complete the transfer outside NEXT-RA, then submit the reference. Finance must verify receipt before any internal wallet balance is credited. Bank rails and blockchain monitoring are not connected to this platform.</div></div>
+    <div class="deposit-method-grid">
+      <label class="deposit-method-card"><input type="radio" name="deposit-method" value="bank" checked><span class="method-icon">▤</span><strong>Bank transfer</strong><small>USD · Bank account</small></label>
+      <label class="deposit-method-card"><input type="radio" name="deposit-method" value="crypto"><span class="method-icon">◇</span><strong>Cryptocurrency</strong><small>Digital asset · Network</small></label>
+    </div>
+    <section class="card section-card deposit-instructions-card">
+      <div class="panel-head"><div><h3 style="margin:0">Official payment instructions</h3><div class="panel-subtitle">Verify the beneficiary details before sending any funds.</div></div>${statusPill(configured?'approved':'pending')}</div>
+      ${configured?`<div class="manual-instructions-text">${escapeHtml(instructions)}</div>`:`<div class="alert-banner" style="margin:0"><span class="notice-icon">!</span><div><strong>Payment details are not configured</strong>Super Admin / Finance must publish the official bank and crypto receiving instructions before accepting requests. Do not transfer funds yet.</div></div>`}
+      ${instructionsError?`<div class="security-note">${escapeHtml(instructionsError.message||'Could not load instructions.')}</div>`:''}
     </section>
-    <div class="two-col"><section class="card section-card"><h3>Submit a deposit request</h3><p>Submit one request per external transfer. Do not submit a request until you have completed the external payment.</p>
+    <div class="two-col"><section class="card section-card"><h3>New deposit request</h3><p>Submit one request for each completed external transfer.</p>
       <form id="manual-deposit-form" class="form-grid">
-        <div class="form-field"><label class="field-label" for="manual-deposit-asset">Asset to credit</label><select class="form-control select-control" id="manual-deposit-asset" required>${options}</select></div>
+        <div class="form-field full"><label class="field-label" for="deposit-asset">Asset to credit</label>
+          <select class="form-control select-control" id="deposit-asset" required>
+            <optgroup label="USD bank transfer" id="deposit-usd-group">${opts(bankAssets)}</optgroup>
+            <optgroup label="Cryptocurrency" id="deposit-crypto-group">${opts(cryptoAssets)}</optgroup>
+          </select>
+        </div>
+        <div class="form-field" id="deposit-network-wrap"><label class="field-label" for="deposit-network">Blockchain network</label><select class="form-control select-control" id="deposit-network"><option value="TRON">TRON (TRC20)</option><option value="BSC">BNB Smart Chain (BEP20)</option><option value="ETHEREUM">Ethereum (ERC20)</option><option value="BITCOIN">Bitcoin</option><option value="SOLANA">Solana</option><option value="XRPL">XRP Ledger</option></select></div>
         <div class="form-field"><label class="field-label" for="manual-deposit-amount">Amount</label><input class="form-control" id="manual-deposit-amount" type="number" min="0.00000001" step="any" required placeholder="Enter amount"/></div>
-        <div class="form-field full"><label class="field-label" for="manual-deposit-reference">External payment reference</label><input class="form-control" id="manual-deposit-reference" type="text" minlength="4" maxlength="160" required placeholder="Bank transfer reference / external transaction ID"/></div>
-        <div class="form-field full"><label class="field-label" for="manual-deposit-memo">Additional note (optional)</label><textarea class="form-control" id="manual-deposit-memo" rows="3" maxlength="500" placeholder="Payment date, sender details or other context"></textarea></div>
-        <div class="form-field full"><button class="primary-button" id="manual-deposit-submit" type="submit" ${depositInstructionsConfigured?'':'disabled'}>Submit deposit for verification →</button></div>
+        <div class="form-field full"><label class="field-label" for="manual-deposit-reference" id="deposit-reference-label">Bank transfer reference</label><input class="form-control" id="manual-deposit-reference" type="text" minlength="4" maxlength="160" required placeholder="Enter your bank transfer reference"/></div>
+        <div class="form-field full"><label class="field-label" for="manual-deposit-memo">Additional note (optional)</label><textarea class="form-control" id="manual-deposit-memo" rows="2" maxlength="500" placeholder="Additional payment details"></textarea></div>
+        <div class="form-field full"><button class="primary-button" id="manual-deposit-submit" type="submit" ${configured?'':'disabled'}>Submit deposit for verification →</button></div>
       </form>
-      ${assetError?'<div class="security-note">The supported asset list could not be loaded.</div>':''}
-    </section><aside class="card section-card"><h3>How external settlement works</h3>
-      <div class="security-row"><div><strong>1. Pay outside NEXT-RA</strong><span>Use the instructions supplied by the platform operator.</span></div>${statusPill('pending')}</div>
-      <div class="security-row"><div><strong>2. Submit the reference</strong><span>Enter the transfer reference and exact asset amount.</span></div>${statusPill('pending')}</div>
-      <div class="security-row"><div><strong>3. Manual verification</strong><span>Finance verifies receipt in the external payment system.</span></div>${statusPill('pending')}</div>
-      <div class="security-row"><div><strong>4. Internal wallet credit</strong><span>After approval, the ledger posts the wallet balance.</span></div>${statusPill('approved')}</div>
-      <div class="security-note">A submitted request is not a deposit confirmation. Never pay to an address or bank account that has not been verified through official platform communication.</div>
+      ${assetError?`<div class="security-note">Could not load supported assets: ${escapeHtml(assetError.message||'')}</div>`:''}
+    </section><aside class="card section-card"><h3>Deposit process</h3>
+      <div class="security-row"><div><strong>01 · Choose channel</strong><span>USD bank transfer or supported crypto asset.</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>02 · Make external payment</strong><span>Use only the official details published above.</span></div>${statusPill('pending')}</div>
+      <div class="security-row"><div><strong>03 · Submit proof reference</strong><span>Bank reference or blockchain transaction hash.</span></div>${statusPill('pending')}</div>
+      <div class="security-row"><div><strong>04 · Finance verification</strong><span>Internal USD / crypto ledger is credited only after approval.</span></div>${statusPill('pending')}</div>
+      <div class="security-note">A submitted request is not proof of payment. Crypto transfers are not monitored on-chain by NEXT-RA.</div>
     </aside></div>
-    <div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">My deposit requests</div><div class="panel-subtitle">Only approved requests are credited to your internal wallet.</div></div></div>
-      ${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>External reference</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.asset_code)}</td><td>${money(r.amount,8)}</td><td class="table-muted">${escapeHtml(r.transaction_hash||'—')}</td><td>${fmtDate(r.created_at)}</td><td>${statusPill(r.status)}${r.rejection_reason?`<div class="field-help">${escapeHtml(r.rejection_reason)}</div>`:''}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No deposit requests','External settlement requests you submit will appear here.')}
+    <div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Deposit history</div><div class="panel-subtitle">Review status and verification results for your requests.</div></div></div>
+      ${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>Payment reference</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.asset_code)}</td><td>${money(r.amount,8)}</td><td class="table-muted">${escapeHtml(r.transaction_hash||'—')}</td><td>${fmtDate(r.created_at)}</td><td>${statusPill(r.status)}${r.rejection_reason?`<div class="field-help">${escapeHtml(r.rejection_reason)}</div>`:''}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No deposit requests','Your deposit requests will appear here.') }
     </section>`;
 }
-
 async function renderWithdraw() {
   const [{data:assets,error:assetError},{data:history,error:historyError}]=await Promise.all([
     supabase.from('assets').select('code,name,kind,decimals').eq('is_active',true).order('display_order'),
     supabase.from('withdrawals').select('id,asset_code,amount,fee_amount,net_amount,destination_address,status,created_at,rejection_reason,memo')
       .eq('user_id',state.user.id).eq('network_code','MANUAL').order('created_at',{ascending:false}).limit(15)
   ]);
-  const options=(assets||[]).map(a=>`<option value="${escapeHtml(a.code)}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
+  const bankAssets=(assets||[]).filter(a=>a.code==='USD');
+  const cryptoAssets=(assets||[]).filter(a=>a.kind==='crypto'&&a.code!=='USD');
+  const opts=(list)=>list.map(a=>`<option value="${escapeHtml(a.code)}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
   const rows=history||[];
-  return `${heading('Withdraw','Request an external payout from your internal exchange balance.')}
-    <div class="alert-banner"><span class="notice-icon">!</span><div><strong>Manual external payout only</strong>NEXT-RA does not send bank payments or cryptocurrency. A withdrawal request reserves your internal balance. The platform operator must make the payment outside NEXT-RA and then mark the request completed with an external reference.</div></div>
-    <div class="two-col"><section class="card section-card"><h3>Request a withdrawal</h3><p>Enter the amount and the exact external bank account or wallet destination. Your available balance is reserved when the request is accepted.</p>
+  return `${heading('Withdraw','Request a USD bank payout or cryptocurrency withdrawal from your internal balance.')}
+    <div class="alert-banner"><span class="notice-icon">!</span><div><strong>External payout requires manual processing</strong>Your internal balance is reserved after a request is accepted. Finance must send the bank payment or crypto transfer outside NEXT-RA and record its reference. No bank API, payment gateway, blockchain node or signing service is connected.</div></div>
+    <div class="deposit-method-grid">
+      <label class="deposit-method-card"><input type="radio" name="withdraw-method" value="bank" checked><span class="method-icon">▤</span><strong>Bank payout</strong><small>USD · Bank account</small></label>
+      <label class="deposit-method-card"><input type="radio" name="withdraw-method" value="crypto"><span class="method-icon">◇</span><strong>Crypto withdrawal</strong><small>Digital asset · Network</small></label>
+    </div>
+    <div class="two-col"><section class="card section-card"><h3>New withdrawal request</h3><p>Enter the amount and verify the destination details carefully.</p>
       <form id="manual-withdrawal-form" class="form-grid">
-        <div class="form-field"><label class="field-label" for="manual-withdrawal-asset">Asset</label><select class="form-control select-control" id="manual-withdrawal-asset" required>${options}</select></div>
+        <div class="form-field full"><label class="field-label" for="manual-withdrawal-asset">Asset</label><select class="form-control select-control" id="manual-withdrawal-asset" required><optgroup label="USD bank payout" id="withdraw-usd-group">${opts(bankAssets)}</optgroup><optgroup label="Cryptocurrency" id="withdraw-crypto-group">${opts(cryptoAssets)}</optgroup></select></div>
+        <div class="form-field" id="withdraw-network-wrap"><label class="field-label" for="withdraw-network">Blockchain network</label><select class="form-control select-control" id="withdraw-network"><option value="TRON">TRON (TRC20)</option><option value="BSC">BNB Smart Chain (BEP20)</option><option value="ETHEREUM">Ethereum (ERC20)</option><option value="BITCOIN">Bitcoin</option><option value="SOLANA">Solana</option><option value="XRPL">XRP Ledger</option></select></div>
         <div class="form-field"><label class="field-label" for="manual-withdrawal-amount">Amount</label><input class="form-control" id="manual-withdrawal-amount" type="number" min="0.00000001" step="any" required placeholder="Enter amount"/></div>
-        <div class="form-field full"><label class="field-label" for="manual-withdrawal-destination">External payout destination</label><textarea class="form-control" id="manual-withdrawal-destination" rows="3" minlength="4" maxlength="500" required placeholder="Bank name and account number, or external wallet address"></textarea></div>
-        <div class="form-field full"><label class="field-label" for="manual-withdrawal-memo">Additional note (optional)</label><textarea class="form-control" id="manual-withdrawal-memo" rows="2" maxlength="500" placeholder="Beneficiary name or payout instructions"></textarea></div>
-        <div class="form-field full"><button class="primary-button" id="manual-withdrawal-submit" type="submit">Submit payout request →</button></div>
+        <div class="form-field full"><label class="field-label" for="manual-withdrawal-destination" id="withdraw-destination-label">Bank account details</label><textarea class="form-control" id="manual-withdrawal-destination" rows="3" minlength="4" maxlength="500" required placeholder="Bank name, account holder and account number"></textarea></div>
+        <div class="form-field full"><label class="field-label" for="manual-withdrawal-memo">Additional note (optional)</label><textarea class="form-control" id="manual-withdrawal-memo" rows="2" maxlength="500" placeholder="Beneficiary or payout note"></textarea></div>
+        <div class="form-field full"><button class="primary-button" id="manual-withdrawal-submit" type="submit">Submit withdrawal request →</button></div>
       </form>
-      ${assetError?'<div class="security-note">The supported asset list could not be loaded.</div>':''}
+      ${assetError?`<div class="security-note">Could not load supported assets: ${escapeHtml(assetError.message||'')}</div>`:''}
     </section><aside class="card section-card"><h3>Withdrawal controls</h3>
-      <div class="security-row"><div><strong>Available balance check</strong><span>Server-side balance is checked before funds are reserved.</span></div>${statusPill('approved')}</div>
-      <div class="security-row"><div><strong>Internal reservation</strong><span>Requested amount moves to a withdrawal-clearing account.</span></div>${statusPill('approved')}</div>
-      <div class="security-row"><div><strong>External payout</strong><span>Finance must make the payout outside NEXT-RA.</span></div>${statusPill('pending')}</div>
-      <div class="security-row"><div><strong>Completion</strong><span>Admin records the external payout reference.</span></div>${statusPill('pending')}</div>
-      <div class="security-note">If a request is rejected, the reserved amount is returned to your internal available balance. Withdrawal requests do not broadcast a blockchain transaction.</div>
+      <div class="security-row"><div><strong>Available balance check</strong><span>Server-side validation before reservation.</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>Internal reservation</strong><span>Funds move to withdrawal clearing pending review.</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>External payout</strong><span>Finance sends the payment outside NEXT-RA.</span></div>${statusPill('pending')}</div>
+      <div class="security-row"><div><strong>Completion evidence</strong><span>Admin records the verified payout reference.</span></div>${statusPill('pending')}</div>
+      <div class="security-note">A rejected request releases the reserved amount back to your internal available balance. No on-chain transaction is broadcast.</div>
     </aside></div>
-    <div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">My withdrawal requests</div><div class="panel-subtitle">Track payout review and external settlement status.</div></div></div>
-      ${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>Destination</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.asset_code)}</td><td>${money(r.amount,8)}</td><td class="table-muted">${escapeHtml(r.destination_address)}</td><td>${fmtDate(r.created_at)}</td><td>${statusPill(r.status)}${r.rejection_reason?`<div class="field-help">${escapeHtml(r.rejection_reason)}</div>`:''}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No withdrawal requests','Your manual payout requests will appear here.')}
+    <div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Withdrawal history</div><div class="panel-subtitle">Track payout review and completion status.</div></div></div>
+      ${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>Destination</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.asset_code)}</td><td>${money(r.amount,8)}</td><td class="table-muted">${escapeHtml(r.destination_address)}</td><td>${fmtDate(r.created_at)}</td><td>${statusPill(r.status)}${r.rejection_reason?`<div class="field-help">${escapeHtml(r.rejection_reason)}</div>`:''}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No withdrawal requests','Your withdrawal requests will appear here.') }
     </section>`;
 }
-
 async function renderInvestments() {
   const [plans, investments] = await Promise.all([
     supabase.from('investment_plans').select('id,plan_code,name,description,asset_code,minimum_amount,maximum_amount,minimum_duration_days,maximum_duration_days,rate_value,rate_period').eq('is_active',true).order('name'),
@@ -827,6 +845,14 @@ function bindPageEvents(page) {
     calculate();
   }
   if(page==='deposit'){
+    const asset=$('#deposit-asset'),network=$('#deposit-network-wrap'),label=$('#deposit-reference-label');
+    const syncDeposit=()=>{
+      const crypto=asset.value!=='USD';
+      network.classList.toggle('hidden',!crypto);
+      label.textContent=crypto?'Blockchain transaction hash':'Bank transfer reference';
+      $('#manual-deposit-reference').placeholder=crypto?'Enter transaction hash (TXID)':'Enter your bank transfer reference';
+    };
+    asset?.addEventListener('change',syncDeposit);syncDeposit();
     $('#manual-deposit-form')?.addEventListener('submit',async(event)=>{
       event.preventDefault();
       const button=$('#manual-deposit-submit');button.disabled=true;button.textContent='Submitting request…';
@@ -836,7 +862,7 @@ function bindPageEvents(page) {
           asset_code:$('#manual-deposit-asset').value,
           amount:$('#manual-deposit-amount').value,
           external_reference:$('#manual-deposit-reference').value.trim(),
-          memo:$('#manual-deposit-memo').value.trim()
+          memo:[`CHANNEL:${$('#deposit-asset').value==='USD'?'BANK_TRANSFER':'CRYPTO'}`,`NETWORK:${$('#deposit-asset').value==='USD'?'BANK':$('#deposit-network').value}`,$('#manual-deposit-memo').value.trim()].filter(Boolean).join(' | ')
         }});
         if(error)throw error;
         if(!data?.success)throw new Error(data?.error||'Deposit request could not be submitted.');
@@ -846,6 +872,14 @@ function bindPageEvents(page) {
     });
   }
   if(page==='withdraw'){
+    const asset=$('#manual-withdrawal-asset'),network=$('#withdraw-network-wrap'),label=$('#withdraw-destination-label');
+    const syncWithdraw=()=>{
+      const crypto=asset.value!=='USD';
+      network.classList.toggle('hidden',!crypto);
+      label.textContent=crypto?'Destination wallet address':'Bank account details';
+      $('#manual-withdrawal-destination').placeholder=crypto?'Paste the destination wallet address':'Bank name, account holder and account number';
+    };
+    asset?.addEventListener('change',syncWithdraw);syncWithdraw();
     $('#manual-withdrawal-form')?.addEventListener('submit',async(event)=>{
       event.preventDefault();
       const asset=$('#manual-withdrawal-asset').value,amount=$('#manual-withdrawal-amount').value;
@@ -855,7 +889,7 @@ function bindPageEvents(page) {
       try{
         const {data,error}=await supabase.functions.invoke('manual-settlement',{body:{
           action:'request_withdrawal',asset_code:asset,amount,destination,
-          memo:$('#manual-withdrawal-memo').value.trim()
+          memo:[`CHANNEL:${asset==='USD'?'BANK_TRANSFER':'CRYPTO'}`,`NETWORK:${asset==='USD'?'BANK':$('#withdraw-network').value}`,$('#manual-withdrawal-memo').value.trim()].filter(Boolean).join(' | ')
         }});
         if(error)throw error;
         if(!data?.success)throw new Error(data?.error||'Withdrawal request could not be submitted.');
