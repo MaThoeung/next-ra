@@ -582,6 +582,14 @@ async function renderAdmin() {
   const fee=data.active_swap_fee||null;
   const treasury=data.treasury_balances||[];
   const hasTreasuryLiquidity=false;
+  let investmentPlanRows=[];
+  let investmentPlanError='';
+  if(isSuper){
+    const {data:investmentData,error:investmentError}=await supabase.functions.invoke('admin-investment-settings',{body:{action:'list'}});
+    if(investmentError) investmentPlanError=investmentError.message||'Investment configuration service unavailable.';
+    else if(!investmentData?.success) investmentPlanError=investmentData?.error||'Could not load investment plans.';
+    else investmentPlanRows=investmentData.plans||[];
+  }
   const settings=data.system_settings||{};
   const systemValue=(key)=>settings[key]===undefined?'Not configured':String(settings[key]);
   return `${heading('Admin console','Governance, system health, market configuration and compliance.',isSuper?`<button class="primary-button" id="open-invite-admin">+ Invite administrator</button>`:'')}
@@ -638,6 +646,26 @@ async function renderAdmin() {
     </section></div>
     ${isSuper?`<div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Pending administrator invitations</div><div class="panel-subtitle">Invitations issued by the Super Admin</div></div></div>${invites.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Email</th><th>Role</th><th>Created</th><th>Expires</th><th>Status</th></tr></thead><tbody>${invites.map(x=>`<tr><td>${escapeHtml(x.email)}</td><td>${escapeHtml(x.role.replaceAll('_',' '))}</td><td>${fmtDate(x.created_at)}</td><td>${fmtDate(x.expires_at)}</td><td>${statusPill(x.status)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pending invitations','New subordinate administrator invitations will appear here.')}</section>`:''}
     ${isSuper?`<div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Administrative audit log</div><div class="panel-subtitle">Latest 50 privileged actions · read-only · sensitive before/after payloads are not exposed here.</div></div><span class="status-pill approved">${(data.audit_logs||[]).length} records</span></div>${(data.audit_logs||[]).length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Time</th><th>Action</th><th>Entity</th><th>Reference</th><th>Actor</th></tr></thead><tbody>${data.audit_logs.map(log=>`<tr><td>${fmtDate(log.created_at)}</td><td><strong>${escapeHtml(log.action||'—')}</strong></td><td>${escapeHtml(log.entity_type||'—')}</td><td class="table-muted">${escapeHtml(log.entity_id||log.request_id||'—')}</td><td class="table-muted">${escapeHtml(shortId(log.actor_user_id||''))}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No audit events yet','Privileged administrative actions will be listed here once recorded.')}</section>`:''}
+
+    ${isSuper?`<div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Investment plan management</div><div class="panel-subtitle">USD principal and ROI · 24-hour payout cycle · crypto asset is a visual market reference only</div></div></div>
+      <div class="investment-disclosure"><strong>Investment configuration only</strong><p>Saving or enabling a plan does not create investments, credit balances or execute payouts. All investor accounting remains USD-denominated. Market reference asset is presentation data only.</p></div>
+      ${investmentPlanError?`<div class="security-note">${escapeHtml(investmentPlanError)}</div>`:''}
+      <div class="investment-admin-form">
+        <div class="form-field"><label class="field-label" for="inv-plan-code">Plan code</label><input id="inv-plan-code" class="form-control" maxlength="40" placeholder="BTC-30D" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-name">Plan name</label><input id="inv-plan-name" class="form-control" maxlength="80" placeholder="30 Day Plan" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-asset">Market reference asset</label><select id="inv-plan-asset" class="form-control">${['BTC','ETH','USDT','BNB','SOL','USDC','XRP','ADA','DOGE','TRX'].map(x=>`<option value="${x}">${x}</option>`).join('')}</select></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-min">Minimum principal (USD)</label><input id="inv-plan-min" class="form-control" type="number" min="0.01" step="0.01" value="100" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-max">Maximum principal (USD)</label><input id="inv-plan-max" class="form-control" type="number" min="0.01" step="0.01" placeholder="Optional" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-days-min">Minimum duration (days)</label><input id="inv-plan-days-min" class="form-control" type="number" min="7" max="365" value="7" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-days-max">Maximum duration (days)</label><input id="inv-plan-days-max" class="form-control" type="number" min="7" max="365" value="30" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-rate">ROI rate (%)</label><input id="inv-plan-rate" class="form-control" type="number" min="0" max="100" step="0.01" placeholder="Set by Admin" /></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-period">ROI period</label><select id="inv-plan-period" class="form-control"><option value="daily">Daily (24 hours)</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="fixed">Fixed term</option></select></div>
+        <div class="form-field"><label class="field-label" for="inv-plan-description">Description</label><input id="inv-plan-description" class="form-control" maxlength="500" placeholder="Optional plan description" /></div>
+      </div>
+      <button class="primary-button" id="save-investment-plan" style="margin-top:14px" ${investmentPlanError?'disabled':''}>Save investment plan →</button>
+      <div class="page-spacer"></div>
+      ${investmentPlanRows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Plan</th><th>Reference asset</th><th>USD range</th><th>Duration</th><th>ROI</th><th>Status</th><th>Action</th></tr></thead><tbody>${investmentPlanRows.map(p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><div class="table-muted">${escapeHtml(p.plan_code)}</div></td><td>${escapeHtml(p.asset_code||'—')}</td><td>${money(p.minimum_amount,2)}–${p.maximum_amount==null?'∞':money(p.maximum_amount,2)}</td><td>${p.minimum_duration_days}–${p.maximum_duration_days} days</td><td>${p.rate_value==null?'—':money(p.rate_value,2)+'% / '+escapeHtml(p.rate_period||'')}</td><td>${statusPill(p.is_active?'approved':'pending')}</td><td><button class="small-button ${p.is_active?'reject':'approve'}" data-invest-plan-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable':'Enable'}</button></td></tr>`).join('')}</tbody></table></div>`:emptyState('No investment plans configured','Create a plan above. It will remain disabled until you enable it.') }
+    </section>`:''}
     <div class="security-note" style="margin-top:13px">Manual payment requests require external verification. Swaps, wallet credits and payout holds are recorded in the internal double-entry ledger. No blockchain or external exchange is connected.</div>`;
 }
 
@@ -956,6 +984,24 @@ function bindPageEvents(page) {
   if(page==='security')$('#setup-mfa')?.addEventListener('click',startMfaSetup);
   if(page==='referrals')$('#copy-referral')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#referral-code').value);toast('Referral code copied.','success');}catch{toast('Copy is not available in this browser.','error');}});
   if(page==='admin'){
+
+    $('#save-investment-plan')?.addEventListener('click',async()=>{
+      const payload={action:'save_plan',plan_code:$('#inv-plan-code').value,name:$('#inv-plan-name').value,asset_code:$('#inv-plan-asset').value,minimum_amount:$('#inv-plan-min').value,maximum_amount:$('#inv-plan-max').value,minimum_duration_days:$('#inv-plan-days-min').value,maximum_duration_days:$('#inv-plan-days-max').value,rate_value:$('#inv-plan-rate').value,rate_period:$('#inv-plan-period').value,description:$('#inv-plan-description').value};
+      if(!payload.plan_code.trim()||!payload.name.trim()||!payload.rate_value.trim())return toast('Enter plan code, name and ROI rate before saving.','error');
+      if(!confirm('Save this USD-denominated investment plan? It will be saved disabled; no member balances or investments will be changed.'))return;
+      const btn=$('#save-investment-plan');btn.disabled=true;btn.textContent='Saving…';
+      const {data,error}=await supabase.functions.invoke('admin-investment-settings',{body:payload});
+      if(error||!data?.success){btn.disabled=false;btn.textContent='Save investment plan →';return toast(error?.message||data?.error||'Could not save investment plan.','error');}
+      toast('Investment plan saved disabled and audit logged.','success');await renderPage('admin');
+    });
+    $('[data-invest-plan-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const enabled=btn.dataset.enabled!=='true';
+      if(!confirm((enabled?'Enable':'Disable')+' this investment plan? This only changes plan availability; it does not create or pay investments.'))return;
+      btn.disabled=true;
+      const {data,error}=await supabase.functions.invoke('admin-investment-settings',{body:{action:'set_plan_enabled',id:btn.dataset.investPlanToggle,enabled}});
+      if(error||!data?.success){btn.disabled=false;return toast(error?.message||data?.error||'Could not update plan.','error');}
+      toast(enabled?'Investment plan enabled.':'Investment plan disabled.','success');await renderPage('admin');
+    }));
     $('#open-invite-admin')?.addEventListener('click',openAdminInviteModal);
     $$('[data-manual-deposit]').forEach(btn=>btn.addEventListener('click',()=>reviewManualDeposit(btn.dataset.id,btn.dataset.manualDeposit)));
     $$('[data-manual-withdrawal]').forEach(btn=>btn.addEventListener('click',()=>reviewManualWithdrawal(btn.dataset.id,btn.dataset.manualWithdrawal)));
