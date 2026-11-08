@@ -6,3 +6,5 @@
 .swap-quote-warning{margin-top:12px;padding:10px 11px;border-radius:8px;background:#eef8f3;color:#287a5e;font-size:9px;line-height:1.6}
 .swap-quote-warning.error{background:#fff2f1;color:#b34c50}
 .swap-quote-expiry{margin-top:9px;color:#8b99aa;font-size:8px;text-align:right}
+
+textarea.form-control{height:auto;min-height:72px;padding:10px 11px;resize:vertical;line-height:1.5}
