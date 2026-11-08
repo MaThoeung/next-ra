@@ -79,7 +79,7 @@ Deno.serve(async (req: Request) => {
         entity_type: "trading_pair",
         entity_id: pairId,
         before_data: { is_active: pair.is_active },
-        after_data: { is_active: enabled, execution_enabled: false }
+        after_data: { is_active: enabled, internal_swap_enabled: true, external_exchange_connected: false, blockchain_connected: false }
       });
       if (auditError) console.error("Trading pair audit log:", auditError.message);
       return out({ success: true, trading_pair: updated, execution_enabled: false });
