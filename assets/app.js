@@ -240,6 +240,7 @@ function activityRow(row) {
 }
 
 async function renderPage(page) {
+  if (state.swapMarketRefreshTimer) { clearInterval(state.swapMarketRefreshTimer); state.swapMarketRefreshTimer=null; }
   if (!state.user) return;
   state.page = page;
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
@@ -314,6 +315,14 @@ async function renderMarkets() {
     <div class="security-note table-scroll-bottom">Market prices are informational only and do not represent executable quotes or guaranteed trading prices. Source: CoinGecko public market data.</div>`;
 }
 
+function renderSwapMarketLeaderboard() {
+  if (!state.markets.length) return emptyState('Market data unavailable','Please refresh in a moment.','!');
+  return `<div class="swap-market-list">${state.markets.slice(0,10).map((coin,index)=>{
+    const change=Number(coin.price_change_percentage_24h||0),up=change>=0;
+    return `<div class="swap-market-row"><span class="swap-market-rank">${index+1}</span>${coinIcon(coin)}<div class="swap-market-name"><strong>${escapeHtml(coin.name)}</strong><span>${escapeHtml(String(coin.symbol||'').toUpperCase())}</span></div><div class="swap-market-quote"><strong>${fmtPrice(coin.current_price)}</strong><span class="price-change ${up?'positive':'negative'}">${up?'+':''}${money(change,2)}%</span></div></div>`;
+  }).join('')}</div>`;
+}
+
 async function renderSwap() {
   await loadMarkets();
   await loadBalances();
@@ -342,11 +351,12 @@ async function renderSwap() {
       <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts(first.quote_asset_code)}</select></div></div>
       <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Available balance</span><strong id="swap-available-balance">—</strong></div><div class="detail-row"><span>Fee</span><strong>Not charged in preview</strong></div><div class="detail-row"><span>Execution status</span><strong class="negative">Preview only</strong></div></div>
       <button class="primary-button" id="get-swap-quote" style="width:100%">Calculate preview</button>
-    </section><aside class="card section-card"><h3>Swap controls</h3><p>Only active pairs configured by the Super Admin are available here.</p>
-      <div class="security-row"><div><strong>Market reference</strong><span>CoinGecko public market data</span></div><span class="status-pill ${state.markets.length?'approved':'pending'}">${state.markets.length?'Connected':'Unavailable'}</span></div>
+    </section><aside class="card section-card swap-market-panel"><div class="panel-head"><div><h3>Top 10 cryptocurrencies</h3><p class="panel-subtitle">Ranked by market capitalization · USD</p></div><button class="small-button" id="refresh-swap-markets" type="button">↻ Refresh</button></div>
+      <div class="swap-market-meta"><span class="status-pill ${state.markets.length?'approved':'pending'}">${state.markets.length?'Live feed':'Feed unavailable'}</span><span id="swap-market-updated">${state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Waiting for data'}</span></div>
+      <div id="swap-market-leaderboard">${renderSwapMarketLeaderboard()}</div>
       <div class="security-row"><div><strong>Enabled trading pairs</strong><span>${state.tradingPairs.length} pair(s)</span></div>${statusPill('approved')}</div>
       <div class="security-row"><div><strong>Ledger execution</strong><span>Internal settlement workflow not released</span></div>${statusPill('pending')}</div>
-      <div class="security-note">Real swaps require approved fees, sufficient treasury liquidity, funded user balances, reconciliation and server-side settlement tests.</div>
+      <div class="security-note">Prices are public reference quotes, not executable exchange prices. CoinGecko's public feed is cached and may update every 1–5 minutes. Swap execution remains disabled.</div>
     </aside></div>`;
 }
 
@@ -586,6 +596,15 @@ function bindPageEvents(page) {
     $('#market-search')?.addEventListener('input',()=>{const term=$('#market-search').value.toLowerCase();const items=state.markets.filter(m=>m.name.toLowerCase().includes(term)||m.symbol.toLowerCase().includes(term));$('#market-table-body').innerHTML=items.length?items.map(marketRow).join(''):`<tr><td colspan="5">${emptyState('No matching assets','Try another search term.')}</td></tr>`;});
   }
   if(page==='swap'){
+    const refreshSwapMarkets=async()=>{
+      const button=$('#refresh-swap-markets'); if(button){button.disabled=true;button.textContent='Loading…';}
+      await loadMarkets(true);
+      const list=$('#swap-market-leaderboard'); if(list)list.innerHTML=renderSwapMarketLeaderboard();
+      const updated=$('#swap-market-updated'); if(updated)updated.textContent=state.marketsUpdatedAt?new Date(state.marketsUpdatedAt).toLocaleTimeString():'Unavailable';
+      if(button){button.disabled=false;button.textContent='↻ Refresh';}
+    };
+    $('#refresh-swap-markets')?.addEventListener('click',refreshSwapMarkets);
+    state.swapMarketRefreshTimer=setInterval(refreshSwapMarkets,60000);
     // The empty-state view intentionally has no quote controls until an admin enables a pair.
     const amountInput=$('#swap-amount'),fromSelect=$('#swap-from'),toSelect=$('#swap-to');
     const estimateInput=$('#swap-estimate'),rateOutput=$('#swap-rate');
