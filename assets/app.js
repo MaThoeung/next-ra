@@ -610,8 +610,8 @@ function bindPageEvents(page) {
   if(page==='referrals')$('#copy-referral')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#referral-code').value);toast('Referral code copied.','success');}catch{toast('Copy is not available in this browser.','error');}});
   if(page==='admin'){
     $('#open-invite-admin')?.addEventListener('click',openAdminInviteModal);
-    $('[data-kyc-review]').forEach(btn=>btn.addEventListener('click',()=>reviewKyc(btn.dataset.kycId,btn.dataset.kycReview)));
-    $('[data-admin-pair-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{
+    $$('[data-kyc-review]').forEach(btn=>btn.addEventListener('click',()=>reviewKyc(btn.dataset.kycId,btn.dataset.kycReview)));
+    $$('[data-admin-pair-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{
       const enabled=btn.dataset.enabled!=='true';
       if(!confirm(`${enabled?'Enable':'Disable'} this pair for preview quotes? This does not turn on real swap execution.`))return;
       btn.disabled=true;
