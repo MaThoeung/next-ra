@@ -441,7 +441,7 @@ async function renderActivity() {
   const [d,w,s,i] = await Promise.all([
     supabase.from('deposits').select('id,asset_code,amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(30),
     supabase.from('withdrawals').select('id,asset_code,amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(30),
-    supabase.from('swap_orders').select('id,from_asset_code,to_asset_code,from_amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(30),
+    supabase.from('swap_orders').select('id,from_asset_code,to_asset_code,from_amount,received_amount,fee_amount,fee_asset_code,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(30),
     supabase.from('investments').select('id,asset_code,principal_amount,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(30)
   ]);
   const rows=[...(d.data||[]).map(x=>({...x,type:'deposit'})),...(w.data||[]).map(x=>({...x,type:'withdraw'})),...(s.data||[]).map(x=>({...x,type:'swap'})),...(i.data||[]).map(x=>({...x,type:'investment'}))].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
