@@ -578,26 +578,31 @@ function bindPageEvents(page) {
     $('#market-search')?.addEventListener('input',()=>{const term=$('#market-search').value.toLowerCase();const items=state.markets.filter(m=>m.name.toLowerCase().includes(term)||m.symbol.toLowerCase().includes(term));$('#market-table-body').innerHTML=items.length?items.map(marketRow).join(''):`<tr><td colspan="5">${emptyState('No matching assets','Try another search term.')}</td></tr>`;});
   }
   if(page==='swap'){
+    // The empty-state view intentionally has no quote controls until an admin enables a pair.
+    const amountInput=$('#swap-amount'),fromSelect=$('#swap-from'),toSelect=$('#swap-to');
+    const estimateInput=$('#swap-estimate'),rateOutput=$('#swap-rate');
+    const sendUsd=$('#swap-send-usd'),receiveUsd=$('#swap-receive-usd');
     const calculate=()=>{
-      const amount=Number($('#swap-amount').value||0),from=$('#swap-from').value,to=$('#swap-to').value;
+      if(!amountInput||!fromSelect||!toSelect||!estimateInput||!rateOutput||!sendUsd||!receiveUsd)return;
+      const amount=Number(amountInput.value||0),from=fromSelect.value,to=toSelect.value;
       const fromPrice=priceOf(from),toPrice=priceOf(to);
       const pairEnabled=state.tradingPairs.some(p=>(p.base_asset_code===from&&p.quote_asset_code===to)||(p.base_asset_code===to&&p.quote_asset_code===from));
       if(!Number.isFinite(amount)||amount<=0||from===to||!pairEnabled||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
-        $('#swap-estimate').value='—';$('#swap-rate').textContent=pairEnabled?'Waiting for valid amount or market price':'Pair is not enabled';
-        $('#swap-send-usd').textContent='≈ —';$('#swap-receive-usd').textContent='≈ —';return;
+        estimateInput.value='—';rateOutput.textContent=pairEnabled?'Waiting for valid amount or market price':'Pair is not enabled';
+        sendUsd.textContent='≈ —';receiveUsd.textContent='≈ —';return;
       }
       const usd=amount*fromPrice,output=usd/toPrice;
       if(!Number.isFinite(output))return;
-      $('#swap-estimate').value=output.toFixed(8).replace(/0+$/,'').replace(/\.$/,'');
-      $('#swap-rate').textContent=`1 ${from} ≈ ${money(fromPrice/toPrice,8)} ${to}`;
-      $('#swap-send-usd').textContent=`≈ ${fmtPrice(usd)}`;
-      $('#swap-receive-usd').textContent=`≈ ${fmtPrice(usd)}`;
+      estimateInput.value=output.toFixed(8).replace(/0+$/,'').replace(/\.$/,'');
+      rateOutput.textContent=`1 ${from} ≈ ${money(fromPrice/toPrice,8)} ${to}`;
+      sendUsd.textContent=`≈ ${fmtPrice(usd)}`;
+      receiveUsd.textContent=`≈ ${fmtPrice(usd)}`;
     };
     $('#get-swap-quote')?.addEventListener('click',calculate);
-    $('#swap-amount')?.addEventListener('input',calculate);
-    $('#swap-from')?.addEventListener('change',calculate);
-    $('#swap-to')?.addEventListener('change',calculate);
-    $('#swap-reverse')?.addEventListener('click',()=>{const a=$('#swap-from').value;$('#swap-from').value=$('#swap-to').value;$('#swap-to').value=a;calculate();});
+    amountInput?.addEventListener('input',calculate);
+    fromSelect?.addEventListener('change',calculate);
+    toSelect?.addEventListener('change',calculate);
+    $('#swap-reverse')?.addEventListener('click',()=>{if(!fromSelect||!toSelect)return;const a=fromSelect.value;fromSelect.value=toSelect.value;toSelect.value=a;calculate();});
     calculate();
   }
   if(page==='kyc')$('#kyc-form')?.addEventListener('submit',submitKyc);
