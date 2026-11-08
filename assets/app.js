@@ -849,6 +849,10 @@ function bindPageEvents(page) {
     const syncDeposit=()=>{
       const crypto=asset.value!=='USD';
       network.classList.toggle('hidden',!crypto);
+      const supported={BTC:['BITCOIN'],ETH:['ETHEREUM'],BNB:['BSC'],USDT:['TRON','BSC','ETHEREUM'],USDC:['BSC','ETHEREUM','SOLANA'],TRX:['TRON'],SOL:['SOLANA'],XRP:['XRPL'],ADA:['CARDANO'],DOGE:['DOGECOIN']}[asset.value]||[];
+      const networkSelect=$('#deposit-network'),current=networkSelect.value;
+      networkSelect.innerHTML=supported.map(n=>`<option value="${n}">${({TRON:'TRON (TRC20)',BSC:'BNB Smart Chain (BEP20)',ETHEREUM:'Ethereum (ERC20)',BITCOIN:'Bitcoin',SOLANA:'Solana',XRPL:'XRP Ledger',CARDANO:'Cardano',DOGECOIN:'Dogecoin'})[n]}</option>`).join('');
+      if(supported.includes(current))networkSelect.value=current;
       label.textContent=crypto?'Blockchain transaction hash':'Bank transfer reference';
       $('#manual-deposit-reference').placeholder=crypto?'Enter transaction hash (TXID)':'Enter your bank transfer reference';
     };
@@ -877,6 +881,10 @@ function bindPageEvents(page) {
     const syncWithdraw=()=>{
       const crypto=asset.value!=='USD';
       network.classList.toggle('hidden',!crypto);
+      const supported={BTC:['BITCOIN'],ETH:['ETHEREUM'],BNB:['BSC'],USDT:['TRON','BSC','ETHEREUM'],USDC:['BSC','ETHEREUM','SOLANA'],TRX:['TRON'],SOL:['SOLANA'],XRP:['XRPL'],ADA:['CARDANO'],DOGE:['DOGECOIN']}[asset.value]||[];
+      const networkSelect=$('#withdraw-network'),current=networkSelect.value;
+      networkSelect.innerHTML=supported.map(n=>`<option value="${n}">${({TRON:'TRON (TRC20)',BSC:'BNB Smart Chain (BEP20)',ETHEREUM:'Ethereum (ERC20)',BITCOIN:'Bitcoin',SOLANA:'Solana',XRPL:'XRP Ledger',CARDANO:'Cardano',DOGECOIN:'Dogecoin'})[n]}</option>`).join('');
+      if(supported.includes(current))networkSelect.value=current;
       label.textContent=crypto?'Destination wallet address':'Bank account details';
       $('#manual-withdrawal-destination').placeholder=crypto?'Paste the destination wallet address':'Bank name, account holder and account number';
     };
