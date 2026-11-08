@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const roles = (roleRows || []).map((r) => r.role);
     if (!roles.length) return json({ error: 'Administrator access required.' }, 403);
 
-    const [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger] = await Promise.all([
+    const [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger, treasuryAccounts] = await Promise.all([
       admin.from('profiles').select('id', { count: 'exact', head: true }),
       admin.from('kyc_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       admin.from('deposits').select('id', { count: 'exact', head: true }).in('status', ['submitted', 'under_review']),
@@ -39,8 +39,22 @@ Deno.serve(async (req) => {
       admin.from('platform_settings').select('setting_key,setting_value'),
       admin.from('swap_orders').select('id', { count: 'exact', head: true }),
       admin.from('ledger_transactions').select('id', { count: 'exact', head: true }).eq('status', 'posted'),
+      admin.from('ledger_accounts').select('id,asset_code').eq('domain', 'platform').eq('account_kind', 'treasury').eq('is_active', true),
     ]);
-    for (const result of [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger]) if (result.error) throw result.error;
+    for (const result of [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger, treasuryAccounts]) if (result.error) throw result.error;
+
+    const treasuryIds = (treasuryAccounts.data || []).map((x) => x.id);
+    const treasuryEntries = treasuryIds.length
+      ? await admin.from('ledger_entries').select('account_id,side,amount,ledger_transactions!inner(status)')
+          .in('account_id', treasuryIds).eq('ledger_transactions.status', 'posted')
+      : { data: [], error: null };
+    if (treasuryEntries.error) throw treasuryEntries.error;
+    const treasuryBalances = (treasuryAccounts.data || []).map((account) => {
+      const balance = (treasuryEntries.data || [])
+        .filter((entry) => entry.account_id === account.id)
+        .reduce((sum, entry) => sum + (entry.side === 'credit' ? 1 : -1) * Number(entry.amount || 0), 0);
+      return { asset_code: account.asset_code, balance: String(balance) };
+    });
 
     const submissions = pendingKyc.data || [];
     const userIds = [...new Set(submissions.map((x) => x.user_id))];
@@ -77,6 +91,7 @@ Deno.serve(async (req) => {
       assets: assets.data || [],
       trading_pairs: pairs.data || [],
       active_swap_fee: activeSwapFee,
+      treasury_balances: treasuryBalances,
       system_settings: systemSettings,
       pending_kyc: kycItems,
       pending_invitations: roles.includes('super_admin') ? (pendingInvitations.data || []) : [],
