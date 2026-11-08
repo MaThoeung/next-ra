@@ -30,7 +30,7 @@ const createClient = await loadSupabaseClient();
 const SUPABASE_URL = 'https://lasrylhmiaxiucvlmpuk.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_vPbPAUIYO2Npgc_jXiEQmQ_oIzu0QVf';
 const KYC_BUCKET = 'kyc-private';
-const COINGECKO_URL = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h';
+const COINGECKO_URL = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=24h';
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true }
 });
@@ -241,6 +241,7 @@ function activityRow(row) {
 
 async function renderPage(page) {
   if (state.swapMarketRefreshTimer) { clearInterval(state.swapMarketRefreshTimer); state.swapMarketRefreshTimer=null; }
+  if (state.swapQuoteExpiryTimer) { clearInterval(state.swapQuoteExpiryTimer); state.swapQuoteExpiryTimer=null; }
   if (!state.user) return;
   state.page = page;
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
@@ -330,7 +331,7 @@ async function renderSwap() {
     .select('code,name,kind,decimals,is_active')
     .eq('is_active',true);
   if(assetError) console.warn('Swap asset list:',assetError.message);
-  const activeAssets=(assets||[]).filter(a=>a.code==='USD'||state.markets.some(m=>String(m.symbol||'').toUpperCase()===a.code));
+  const activeAssets=(assets||[]).filter(a=>a.code==='USD'||a.kind==='crypto');
   const marketRank=new Map(state.markets.map((m,i)=>[String(m.symbol||'').toUpperCase(),i]));
   activeAssets.sort((a,b)=>a.code==='USD'?-1:b.code==='USD'?1:(marketRank.get(a.code)??99)-(marketRank.get(b.code)??99));
   const codes=activeAssets.map(a=>a.code);
@@ -445,7 +446,7 @@ async function renderActivity() {
   ]);
   const rows=[...(d.data||[]).map(x=>({...x,type:'deposit'})),...(w.data||[]).map(x=>({...x,type:'withdraw'})),...(s.data||[]).map(x=>({...x,type:'swap'})),...(i.data||[]).map(x=>({...x,type:'investment'}))].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   return `${heading('Activity','A private timeline of your account records.')}
-    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Account history</div><div class="panel-subtitle">Latest 120 records across your account modules</div></div></div>${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Type</th><th>Reference</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.type)}</td><td class="table-muted">${shortId(r.id)}</td><td>${fmtDate(r.created_at)}</td><td>${r.type==='swap'?`${money(r.from_amount,6)} ${escapeHtml(r.from_asset_code)}`:`${money(r.amount??r.principal_amount,6)} ${escapeHtml(r.asset_code)}`}</td><td>${statusPill(r.status)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No activity yet','Your account records will appear here once an approved operation has been processed.')}</section>`;
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Account history</div><div class="panel-subtitle">Latest 120 records across your account modules</div></div></div>${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Type</th><th>Reference</th><th>Date</th><th>Sent / received</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.type)}</td><td class="table-muted">${shortId(r.id)}</td><td>${fmtDate(r.created_at)}</td><td>${r.type==='swap'?`${money(r.from_amount,8)} ${escapeHtml(r.from_asset_code)} → ${r.received_amount==null?'—':money(r.received_amount,8)+' '+escapeHtml(r.to_asset_code)}`:`${money(r.amount??r.principal_amount,6)} ${escapeHtml(r.asset_code)}`}</td><td>${statusPill(r.status)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No activity yet','Your account records will appear here once an approved operation has been processed.')}</section>`;
 }
 
 async function renderAdmin() {
@@ -486,10 +487,10 @@ async function renderAdmin() {
       <div class="security-note">A live swap cannot settle unless the platform holds the asset being delivered. Price feeds do not create inventory.</div>
     </section>
     <div class="page-spacer"></div>
-    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair makes it available for preview quotes only; it does not enable execution.</div></div></div>
-      ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable preview pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair allows internal simulated swaps using USD market-reference prices. It never enables external exchange or blockchain execution.</div></div></div>
+      ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable internal pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
     </section>
-    ${isSuper?`<div class="page-spacer"></div><section class="card section-card"><h3>Swap fee configuration</h3><p>Fee changes are recorded in the admin audit log. This fee is configuration only; no fee is collected while swap execution is disabled.</p>
+    ${isSuper?`<div class="page-spacer"></div><section class="card section-card"><h3>Swap fee configuration</h3><p>Fee changes are recorded in the admin audit log. The configured fee is applied to completed internal swaps. No external exchange or blockchain fee is charged.</p>
       <div class="security-row"><div><strong>Current swap fee</strong><span>${fee?`${money(fee.fee_value,2)}% · effective ${fmtDate(fee.effective_from)}`:'Not configured'}</span></div>${statusPill(fee?'approved':'pending')}</div>
       <div class="form-field"><label class="field-label" for="swap-fee-percent">New swap fee (%)</label><input id="swap-fee-percent" class="form-control" type="number" min="0" max="10" step="0.01" value="${fee?escapeHtml(String(fee.fee_value)):''}" placeholder="Enter 0–10" /></div>
       <button class="primary-button" id="save-swap-fee" style="margin-top:12px">Save swap fee configuration →</button>
@@ -606,7 +607,7 @@ function bindPageEvents(page) {
     let activeQuote=null,expiryTimer=null;
     const clearQuote=()=>{
       activeQuote=null;
-      if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null;}
+      if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null;state.swapQuoteExpiryTimer=null;}
       quotePanel?.classList.add('hidden');
       if(quotePanel)quotePanel.innerHTML='';
     };
@@ -667,6 +668,7 @@ function bindPageEvents(page) {
           if(execute&&remaining<=0)execute.disabled=true;
           if(remaining<=0&&expiryTimer){clearInterval(expiryTimer);expiryTimer=null;}
         },1000);
+        state.swapQuoteExpiryTimer=expiryTimer;
         $('#execute-swap')?.addEventListener('click',async()=>{
           if(!activeQuote||Date.now()>=expires)return toast('Quote expired. Please request a new quote.','error');
           if(!confirm(`Confirm internal swap: ${amount} ${from} → approximately ${p.net_to_amount} ${to}? This updates only NEXT-RA internal balances and is not an on-chain or external exchange trade.`))return;
@@ -724,13 +726,13 @@ function bindPageEvents(page) {
       btn.disabled=true;
       const {data,error}=await supabase.functions.invoke('admin-trading-settings',{body:{action:'set_pair_enabled',pair_id:btn.dataset.adminPairToggle,enabled}});
       if(error){btn.disabled=false;return toast(error.message||'Could not update trading pair.','error');}
-      toast(enabled?'Preview pair enabled.':'Preview pair disabled.','success');
+      toast(enabled?'Internal trading pair enabled.':'Internal trading pair disabled.','success');
       await renderPage('admin');
     }));
     $('#save-swap-fee')?.addEventListener('click',async()=>{
       const fee=Number($('#swap-fee-percent').value);
       if(!Number.isFinite(fee)||fee<0||fee>10)return toast('Enter a swap fee between 0 and 10 percent.','error');
-      if(!confirm(`Save the swap fee as ${fee}%? This will not collect fees until swap execution is enabled.`))return;
+      if(!confirm(`Save the swap fee as ${fee}%? This fee will apply to completed internal simulated swaps.`))return;
       const btn=$('#save-swap-fee');btn.disabled=true;btn.textContent='Saving…';
       const {data,error}=await supabase.functions.invoke('admin-trading-settings',{body:{action:'set_swap_fee',fee_percent:fee}});
       if(error){btn.disabled=false;btn.textContent='Save swap fee configuration →';return toast(error.message||'Could not save swap fee.','error');}
