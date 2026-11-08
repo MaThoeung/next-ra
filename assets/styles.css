@@ -56,3 +56,9 @@ textarea.form-control{height:auto;min-height:72px;padding:10px 11px;resize:verti
 @media(max-width:720px){.investment-summary-grid{grid-template-columns:1fr}.investment-assets-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.investment-selected-market{align-items:flex-start;flex-direction:column}.investment-market-note{text-align:left}}
 
 .investment-asset-icon{width:27px;height:27px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:#edf2ff;color:#2448a5;font-size:9px;font-weight:800;letter-spacing:-.3px;flex:0 0 auto}
+
+.investment-admin-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:16px}
+.investment-admin-form .form-field{min-width:0}
+.investment-admin-form .field-label{display:block;margin-bottom:6px}
+@media(max-width:850px){.investment-admin-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.investment-admin-form{grid-template-columns:1fr}}
