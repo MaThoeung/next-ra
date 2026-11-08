@@ -520,7 +520,7 @@ async function renderAdmin() {
   const pairs=data.trading_pairs||[];
   const fee=data.active_swap_fee||null;
   const treasury=data.treasury_balances||[];
-  const hasTreasuryLiquidity=treasury.some(item=>Number(item.balance)>0);
+  const hasTreasuryLiquidity=false;
   const settings=data.system_settings||{};
   const systemValue=(key)=>settings[key]===undefined?'Not configured':String(settings[key]);
   return `${heading('Admin console','Governance, system health, market configuration and compliance.',isSuper?`<button class="primary-button" id="open-invite-admin">+ Invite administrator</button>`:'')}
@@ -540,9 +540,9 @@ async function renderAdmin() {
       </section>
     </div>
     <div class="page-spacer"></div>
-    <section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">Platform treasury &amp; liquidity</h3><div class="panel-subtitle">Balances are derived from posted internal-ledger entries.</div></div><span class="status-pill ${hasTreasuryLiquidity?'approved':'pending'}">${hasTreasuryLiquidity?'Funded':'No liquidity'}</span></div>
+    <section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">External custody &amp; reserve status</h3><div class="panel-subtitle">No external exchange, bank custody or blockchain reserve is connected.</div></div><span class="status-pill pending">External custody off</span></div>
       ${treasury.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Treasury balance</th><th>Settlement readiness</th></tr></thead><tbody>${treasury.map(item=>`<tr><td><strong>${escapeHtml(item.asset_code)}</strong></td><td>${money(item.balance,8)} ${escapeHtml(item.asset_code)}</td><td>${Number(item.balance)>0?statusPill('approved'):statusPill('pending')}</td></tr>`).join('')}</tbody></table></div>`:emptyState('Treasury accounts not available','The platform treasury accounts could not be loaded.')}
-      <div class="security-note">A live swap cannot settle unless the platform holds the asset being delivered. Price feeds do not create inventory.</div>
+      <div class="security-note">NEXT-RA internal simulated balances are ledger units only. This panel is not proof of external reserves, custody or redeemability.</div>
     </section>
     <div class="page-spacer"></div>
     <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair allows internal simulated swaps using USD market-reference prices. It never enables external exchange or blockchain execution.</div></div></div>
@@ -565,9 +565,9 @@ async function renderAdmin() {
     <div class="two-col"><section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">KYC review queue</h3><div class="panel-subtitle">Identity documents requiring review</div></div><span class="status-pill pending">${kycRows.length} pending</span></div>
       ${kycRows.length?kycRows.map(k=>`<div class="admin-kyc-row"><div><strong>${escapeHtml(k.email||shortId(k.user_id))}</strong><span>Submitted ${fmtDate(k.submitted_at)} · ${k.documents?.length||0} document(s)</span><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">${(k.documents||[]).map(doc=>doc.signed_url?`<a class="small-button" href="${escapeHtml(doc.signed_url)}" target="_blank" rel="noopener">View ${escapeHtml(doc.document_type)}</a>`:'').join('')}</div></div><div class="row-actions"><button class="small-button approve" data-kyc-review="approved" data-kyc-id="${escapeHtml(k.id)}">Approve</button><button class="small-button reject" data-kyc-review="rejected" data-kyc-id="${escapeHtml(k.id)}">Reject</button></div></div>`).join('') : emptyState('No pending KYC reviews','New submissions will appear here once members submit documents.')}
     </section><section class="card section-card"><h3>Platform limitations</h3><p>External payments are handled manually outside NEXT-RA; no blockchain or bank payment integration is present.</p>
-      <div class="security-row"><div><strong>Manual deposits</strong><span>External payment verified by Finance Admin</span></div>${statusPill('pending')}</div>
-      <div class="security-row"><div><strong>Manual withdrawals</strong><span>External payout executed by platform operator</span></div>${statusPill('pending')}</div>
-      <div class="security-row"><div><strong>Internal simulated swaps</strong><span>Posted to internal double-entry ledger</span></div>${statusPill('pending')}</div>
+      <div class="security-row"><div><strong>Manual deposits</strong><span>Externally verified by Finance Admin</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>Manual withdrawals</strong><span>Externally paid by platform operator</span></div>${statusPill('approved')}</div>
+      <div class="security-row"><div><strong>Internal simulated swaps</strong><span>Posted to internal double-entry ledger</span></div>${statusPill('approved')}</div>
     </section></div>
     ${isSuper?`<div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Pending administrator invitations</div><div class="panel-subtitle">Invitations issued by the Super Admin</div></div></div>${invites.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Email</th><th>Role</th><th>Created</th><th>Expires</th><th>Status</th></tr></thead><tbody>${invites.map(x=>`<tr><td>${escapeHtml(x.email)}</td><td>${escapeHtml(x.role.replaceAll('_',' '))}</td><td>${fmtDate(x.created_at)}</td><td>${fmtDate(x.expires_at)}</td><td>${statusPill(x.status)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pending invitations','New subordinate administrator invitations will appear here.')}</section>`:''}
     <div class="security-note" style="margin-top:13px">Manual payment requests require external verification. Swaps, wallet credits and payout holds are recorded in the internal double-entry ledger. No blockchain or external exchange is connected.</div>`;
