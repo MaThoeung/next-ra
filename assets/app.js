@@ -463,15 +463,51 @@ async function renderWithdraw() {
     </section>`;
 }
 async function renderInvestments() {
+  await loadMarkets();
   const [plans, investments] = await Promise.all([
-    supabase.from('investment_plans').select('id,plan_code,name,description,asset_code,minimum_amount,maximum_amount,minimum_duration_days,maximum_duration_days,rate_value,rate_period').eq('is_active',true).order('name'),
+    supabase.from('investment_plans').select('id,plan_code,name,description,asset_code,minimum_amount,maximum_amount,minimum_duration_days,maximum_duration_days,rate_value,rate_period,is_active').eq('is_active',true).order('name'),
     supabase.from('investments').select('id,asset_code,principal_amount,duration_days,applied_rate,applied_rate_period,status,starts_at,matures_at,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(20)
   ]);
+  if (plans.error) console.warn('Investment plans could not be loaded:',plans.error.message);
+  if (investments.error) console.warn('Investment history could not be loaded:',investments.error.message);
   const planRows = plans.data||[], invRows = investments.data||[];
-  return `${heading('Investments','Review available plans and your investment history.')}
-    <div class="alert-banner"><span class="notice-icon">i</span><div><strong>Investment activation is not available</strong>Plans are displayed only when configured by an authorised administrator. New investments will not be accepted until terms, funding rules and payout calculations are approved.</div></div>
-    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Available plans</div><div class="panel-subtitle">Administrator-configured investment terms</div></div></div>${planRows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Plan</th><th>Asset</th><th>Minimum</th><th>Duration</th><th>Rate</th></tr></thead><tbody>${planRows.map(p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><div class="table-muted">${escapeHtml(p.description||p.plan_code)}</div></td><td>${escapeHtml(p.asset_code)}</td><td>${money(p.minimum_amount,2)}</td><td>${p.minimum_duration_days}–${p.maximum_duration_days} days</td><td>${money(p.rate_value,2)}% / ${escapeHtml(p.rate_period)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No active plans','There are no investment plans configured for this account yet.')}</section>
-    <div class="page-spacer"></div><section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">My investment history</div><div class="panel-subtitle">Your investment records are private to your account.</div></div></div>${invRows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Principal</th><th>Duration</th><th>Status</th><th>Start date</th></tr></thead><tbody>${invRows.map(i=>`<tr><td>${escapeHtml(i.asset_code)}</td><td>${money(i.principal_amount,6)}</td><td>${i.duration_days} days</td><td>${statusPill(i.status)}</td><td>${fmtDate(i.starts_at)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No investments yet','Your investment history will appear here.')}</section>`;
+  const supported = ['BTC','ETH','USDT','BNB','SOL','USDC','XRP','ADA','DOGE','TRX'];
+  const coins = supported.map(code=>state.markets.find(m=>String(m.symbol||'').toUpperCase()===code)).filter(Boolean);
+  const selectedCode = state.investmentDisplayAsset || coins[0]?.symbol?.toUpperCase() || 'BTC';
+  const selectedCoin = coins.find(c=>String(c.symbol).toUpperCase()===selectedCode) || coins[0];
+  const selectedPrice = selectedCoin ? Number(selectedCoin.current_price) : null;
+  const selectedPlans = planRows.filter(p=>!p.asset_code || p.asset_code===selectedCode);
+  const activeTotal = invRows.filter(i=>['active','pending'].includes(i.status)).reduce((sum,i)=>sum+Number(i.principal_amount||0),0);
+  const maturedTotal = invRows.filter(i=>i.status==='matured').reduce((sum,i)=>sum+Number(i.principal_amount||0),0);
+  const assetCards = coins.map(c=>{
+    const code=String(c.symbol).toUpperCase(), change=Number(c.price_change_percentage_24h||0), up=change>=0;
+    return `<button type="button" class="investment-asset-card ${code===selectedCode?'selected':''}" data-invest-asset="${escapeHtml(code)}" aria-pressed="${code===selectedCode?'true':'false'}">
+      <span class="investment-asset-top">${coinIcon(c)}<span class="investment-change ${up?'up':'down'}">${up?'+':''}${money(change,2)}%</span></span>
+      <strong>${escapeHtml(c.name)}</strong><span class="investment-asset-symbol">${escapeHtml(code)}</span>
+      <b>${fmtPrice(c.current_price)}</b><small>24h market reference</small></button>`;
+  }).join('');
+  return `${heading('Investments','USD-denominated investment plans with live crypto market visuals.')}
+    <div class="investment-disclosure"><strong>How NEXT-RA Investment works</strong><p>Your investment principal and returns are recorded in USD. Crypto prices, charts and network activity are visual market references only. Price movements do not change your principal or configured USD return. No crypto is purchased or held on your behalf.</p></div>
+    <div class="grid investment-summary-grid">
+      <div class="card investment-summary"><span>Active investment principal</span><strong>${fmtPrice(activeTotal)}</strong><small>USD · account records</small></div>
+      <div class="card investment-summary"><span>Matured principal awaiting choice</span><strong>${fmtPrice(maturedTotal)}</strong><small>USD · withdraw or reinvest</small></div>
+      <div class="card investment-summary"><span>Payment currency</span><strong>USD</strong><small>Principal and ROI denomination</small></div>
+    </div>
+    <section class="card panel investment-market-panel">
+      <div class="panel-head"><div><div class="panel-title">Choose a market visual</div><div class="panel-subtitle">Select an asset to view its live public market reference. This does not change your investment currency.</div></div><span class="status-pill ${state.marketError?'pending':'approved'}">${state.marketError?'Market feed unavailable':'Live market reference'}</span></div>
+      <div class="investment-assets-grid">${assetCards||emptyState('Market data unavailable','The market reference feed did not return the supported assets.')}</div>
+      ${selectedCoin? `<div class="investment-selected-market"><div><span class="table-muted">Selected market reference</span><h3>${escapeHtml(selectedCoin.name)} (${escapeHtml(selectedCode)})</h3><strong>${fmtPrice(selectedPrice)}</strong><span class="investment-change ${Number(selectedCoin.price_change_percentage_24h||0)>=0?'up':'down'}">${Number(selectedCoin.price_change_percentage_24h||0)>=0?'+':''}${money(selectedCoin.price_change_percentage_24h||0,2)}% · 24h</span></div><div class="investment-market-note">Illustrative market data only<br><small>Not used to calculate USD ROI</small></div></div>`:''}
+    </section>
+    <div class="page-spacer"></div>
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Available investment plans</div><div class="panel-subtitle">Configured by an authorised administrator · USD principal · 24-hour payout cycle</div></div></div>
+      ${selectedPlans.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Plan</th><th>Principal range (USD)</th><th>Duration</th><th>Configured ROI</th><th>Currency</th></tr></thead><tbody>${selectedPlans.map(p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><div class="table-muted">${escapeHtml(p.description||p.plan_code)}</div></td><td>${money(p.minimum_amount,2)} – ${p.maximum_amount==null?'No maximum':money(p.maximum_amount,2)}</td><td>${p.minimum_duration_days??'—'}–${p.maximum_duration_days??'—'} days</td><td>${p.rate_value==null?'Admin configuration pending':money(p.rate_value,2)+'% / '+escapeHtml(p.rate_period||'period')}</td><td><strong>USD</strong></td></tr>`).join('')}</tbody></table></div>`:emptyState('No active plans for this selection','Investment plans will appear here after an authorised administrator configures and opens them. No investment can be started from this display yet.')}
+    </section>
+    <div class="page-spacer"></div>
+    <section class="card panel investment-activity-panel"><div class="panel-head"><div><div class="panel-title">Public network activity</div><div class="panel-subtitle">${escapeHtml(selectedCode)} · public blockchain reference</div></div><span class="status-pill pending">Connection pending</span></div><div class="investment-activity-placeholder"><span class="notice-icon">i</span><div><strong>Public transaction feed is not connected yet</strong><p>When an approved public data provider is integrated, this area will show third-party network transactions. These records will remain separate from NEXT-RA member activity and will never affect investment balances.</p></div></div></section>
+    <div class="page-spacer"></div>
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">My investment history</div><div class="panel-subtitle">Your private investment records · all amounts in USD</div></div></div>
+      ${invRows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Market reference</th><th>Principal (USD)</th><th>Duration</th><th>ROI terms</th><th>Status</th><th>Start date</th></tr></thead><tbody>${invRows.map(i=>`<tr><td>${escapeHtml(i.asset_code||'—')}</td><td><strong>${money(i.principal_amount,2)} USD</strong></td><td>${i.duration_days} days</td><td>${i.applied_rate==null?'—':money(i.applied_rate,2)+'% / '+escapeHtml(i.applied_rate_period||'')}</td><td>${statusPill(i.status)}${i.status==='matured'?'<div class="field-help">Choose withdrawal or reinvestment</div>':''}</td><td>${fmtDate(i.starts_at)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No investments yet','Your private investment records will appear here after the investment service is enabled.')}</section>
+    <div class="security-note investment-simulation-note">NEXT-RA investment is presented as a USD-denominated platform product. Market visuals and public network data are informational only and do not represent asset custody, trading exposure, guaranteed returns or proof of reserves.</div>`;
 }
 async function renderReferrals() {
   const [profile,rewards] = await Promise.all([
@@ -724,6 +760,10 @@ async function reviewKyc(id,status) {
 }
 
 function bindPageEvents(page) {
+  if(page==='investments'){
+    $$('[data-invest-asset]').forEach(button=>button.addEventListener('click',()=>{state.investmentDisplayAsset=button.dataset.investAsset;renderPage('investments');}));
+  }
+
   $$('[data-go]').forEach(button=>button.addEventListener('click',()=>renderPage(button.dataset.go)));
   if(page==='markets'){
     $('#refresh-markets')?.addEventListener('click',async()=>{await loadMarkets(true);await renderPage('markets');});
