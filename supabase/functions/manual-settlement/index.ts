@@ -31,6 +31,13 @@ Deno.serve(async(req:Request)=>{
 
     const body=await req.json();
     const action=String(body.action||"");
+    if(action==="get_deposit_instructions"){
+      const {data:setting,error:settingError}=await admin.from("platform_settings")
+        .select("setting_value").eq("setting_key","manual_deposit_instructions").maybeSingle();
+      if(settingError)throw settingError;
+      const instructions=String(setting?.setting_value?.text||"");
+      return json({success:true,configured:instructions.trim().length>0,instructions});
+    }
     const asset=String(body.asset_code||"").toUpperCase();
     const amountText=String(body.amount??"").trim();
     if(!/^[A-Z0-9]{2,15}$/.test(asset)||!/^\d{1,15}(?:\.\d{1,18})?$/.test(amountText))return json({error:"Enter a valid asset and amount."},400);
@@ -42,6 +49,12 @@ Deno.serve(async(req:Request)=>{
     if((amountText.split(".")[1]||"").length>Number(assetRow.decimals))return json({error:`${asset} supports up to ${assetRow.decimals} decimal places.`},400);
 
     if(action==="submit_deposit"){
+      const {data:instructionSetting,error:instructionError}=await admin.from("platform_settings")
+        .select("setting_value").eq("setting_key","manual_deposit_instructions").maybeSingle();
+      if(instructionError)throw instructionError;
+      if(!String(instructionSetting?.setting_value?.text||"").trim()){
+        return json({error:"External deposit instructions have not been configured by the platform administrator yet."},409);
+      }
       const reference=String(body.external_reference||"").trim();
       const memo=String(body.memo||"").trim().slice(0,500);
       if(reference.length<4||reference.length>160)return json({error:"Enter the external bank/payment reference (4–160 characters)."},400);
