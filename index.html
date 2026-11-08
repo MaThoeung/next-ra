@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f6f8fb" />
+  <meta name="description" content="NEXT-RA — Global Trading Platform. Secure account, wallet and market workspace." />
+  <title>NEXT-RA | Global Trading Platform</title>
+  <link rel="icon" type="image/png" href="./assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body>
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-lockup">
+        <img class="brand-logo" src="./assets/next-ra-logo.png" alt="NEXT-RA logo" />
+        <div><div class="brand-name">NEXT-RA</div><div class="brand-caption">GLOBAL TRADING PLATFORM</div></div>
+      </div>
+      <div class="sidebar-label">WORKSPACE</div>
+      <nav class="main-nav" id="main-nav">
+        <button class="nav-item active" data-page="dashboard"><span class="nav-icon">◫</span><span>Dashboard</span></button>
+        <button class="nav-item" data-page="markets"><span class="nav-icon">⌁</span><span>Markets</span><span class="nav-tag">LIVE</span></button>
+        <button class="nav-item" data-page="swap"><span class="nav-icon">⇄</span><span>Swap</span></button>
+        <button class="nav-item" data-page="wallet"><span class="nav-icon">▣</span><span>Wallets</span></button>
+        <button class="nav-item" data-page="deposit"><span class="nav-icon">↓</span><span>Deposit</span></button>
+        <button class="nav-item" data-page="withdraw"><span class="nav-icon">↑</span><span>Withdraw</span></button>
+        <button class="nav-item" data-page="investments"><span class="nav-icon">◷</span><span>Investments</span></button>
+        <button class="nav-item" data-page="referrals"><span class="nav-icon">♧</span><span>Referrals</span></button>
+      </nav>
+      <div class="sidebar-label account-label">ACCOUNT</div>
+      <nav class="main-nav">
+        <button class="nav-item" data-page="kyc"><span class="nav-icon">▤</span><span>Identity verification</span></button>
+        <button class="nav-item" data-page="security"><span class="nav-icon">⌑</span><span>Security</span></button>
+        <button class="nav-item" data-page="activity"><span class="nav-icon">◴</span><span>Activity</span></button>
+      </nav>
+      <div class="sidebar-admin hidden" id="admin-nav-wrap">
+        <div class="sidebar-label">ADMINISTRATION</div>
+        <nav class="main-nav">
+          <button class="nav-item" data-page="admin"><span class="nav-icon">▦</span><span>Admin console</span><span class="nav-dot"></span></button>
+        </nav>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="support-card"><div class="support-icon">i</div><div><strong>Account support</strong><span>Contact your platform team</span></div></div>
+        <div class="sidebar-user"><div class="avatar" id="sidebar-avatar">U</div><div class="sidebar-user-meta"><strong id="sidebar-email">Your account</strong><span id="sidebar-role">Member</span></div><button id="sign-out-btn" class="icon-button" aria-label="Sign out" title="Sign out">↗</button></div>
+      </div>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <button class="mobile-menu icon-button" id="mobile-menu" aria-label="Open menu">☰</button>
+        <div class="breadcrumb"><span>Workspace</span><span class="breadcrumb-sep">/</span><strong id="breadcrumb-current">Dashboard</strong></div>
+        <div class="topbar-actions">
+          <div class="market-status"><span class="status-pulse"></span><span>Market data</span><strong id="market-status-text">Connecting</strong></div>
+          <button class="icon-button notification-button" id="notifications-btn" title="Notifications" aria-label="Notifications">♧<i id="notification-dot" class="notification-dot hidden"></i></button>
+          <button class="top-avatar" id="top-avatar" title="Account">U</button>
+        </div>
+      </header>
+      <main class="content" id="page-content">
+        <div class="page-heading"><div><div class="eyebrow">OVERVIEW</div><h1>Welcome back</h1><p>Your portfolio at a glance.</p></div></div>
+        <div class="loading-panel">Preparing your secure workspace…</div>
+      </main>
+      <footer class="app-footer"><span>© <span id="year"></span> NEXT-RA</span><span><i class="footer-shield">◆</i> Secure account workspace</span></footer>
+    </div>
+  </div>
+
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-visual">
+      <div class="auth-visual-top"><div class="brand-lockup light-brand"><img class="brand-logo" src="./assets/next-ra-logo.png" alt="NEXT-RA logo" /><div><div class="brand-name">NEXT-RA</div><div class="brand-caption">GLOBAL TRADING PLATFORM</div></div></div><div class="secure-pill"><span class="status-pulse"></span> SECURE ACCESS</div></div>
+      <div class="auth-hero-copy"><div class="eyebrow light-eyebrow">A CLEARER VIEW OF DIGITAL ASSETS</div><h1>Built for a more<br/><em>confident</em> way to manage crypto.</h1><p>One secure workspace for your digital asset account, market view and portfolio activity.</p></div>
+      <div class="auth-visual-bottom"><div class="orbit-graphic"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core"><img class="brand-logo large-logo" src="./assets/next-ra-logo.png" alt="NEXT-RA logo" /></div><div class="orbit-node node-one">₿</div><div class="orbit-node node-two">Ξ</div><div class="orbit-node node-three">◆</div></div><div class="visual-note"><span>01 / SECURE BY DESIGN</span><span>ACCOUNT · WALLET · MARKET</span></div></div>
+    </div>
+    <div class="auth-panel">
+      <div class="auth-panel-inner">
+        <div class="auth-mobile-brand brand-lockup"><img class="brand-logo" src="./assets/next-ra-logo.png" alt="NEXT-RA logo" /><div><div class="brand-name">NEXT-RA</div><div class="brand-caption">GLOBAL TRADING PLATFORM</div></div></div>
+        <div class="auth-tabs"><button class="auth-tab active" id="login-tab">Sign in</button><button class="auth-tab" id="signup-tab">Create account</button></div>
+        <div class="auth-heading"><div class="eyebrow">YOUR ACCOUNT</div><h2 id="auth-title">Welcome back</h2><p id="auth-subtitle">Sign in to continue to your workspace.</p></div>
+        <form id="auth-form" class="auth-form">
+          <label class="field-label" for="auth-email">Email address</label><div class="input-wrap"><span class="input-symbol">✉</span><input id="auth-email" type="email" autocomplete="email" placeholder="name@example.com" required /></div>
+          <label class="field-label" for="auth-password">Password</label><div class="input-wrap"><span class="input-symbol">⌑</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required /><button type="button" class="reveal-password" id="reveal-password">Show</button></div>
+          <div id="signup-name-wrap" class="hidden"><label class="field-label" for="auth-name">Display name</label><div class="input-wrap"><span class="input-symbol">◉</span><input id="auth-name" type="text" autocomplete="name" placeholder="Your name" maxlength="70" /></div></div>
+          <button class="primary-button auth-submit" id="auth-submit" type="submit">Sign in <span>→</span></button>
+        </form>
+        <div class="auth-message hidden" id="auth-message" role="status"></div>
+        <div class="auth-note"><span class="note-lock">◆</span><span>Your credentials are protected by Supabase Authentication. Never share your password or verification codes.</span></div>
+        <div class="auth-legal">By continuing, you agree to the platform's <a href="#" data-static-info="Terms of service">Terms of Service</a> and <a href="#" data-static-info="Privacy notice">Privacy Notice</a>.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script src="./assets/bootstrap.js"></script>
+  <script id="next-ra-app-module" type="module" src="./assets/app.js"></script>
+</body>
+</html>
