@@ -26,15 +26,21 @@ Deno.serve(async (req) => {
     const roles = (roleRows || []).map((r) => r.role);
     if (!roles.length) return json({ error: 'Administrator access required.' }, 403);
 
-    const [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations] = await Promise.all([
+    const [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger] = await Promise.all([
       admin.from('profiles').select('id', { count: 'exact', head: true }),
       admin.from('kyc_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       admin.from('deposits').select('id', { count: 'exact', head: true }).in('status', ['submitted', 'under_review']),
       admin.from('withdrawals').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review']),
       admin.from('kyc_submissions').select('id,user_id,status,submitted_at').eq('status', 'pending').order('submitted_at', { ascending: true }).limit(20),
       roles.includes('super_admin') ? admin.from('admin_invitations').select('id,email,role,status,created_at,expires_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
+      admin.from('assets').select('code,name,is_active,display_order').order('display_order', { ascending: true }),
+      admin.from('trading_pairs').select('id,base_asset_code,quote_asset_code,is_active,display_order').order('display_order', { ascending: true }),
+      admin.from('fee_settings').select('id,scope,operation,fee_type,fee_value,is_active,effective_from,effective_until,created_at').eq('scope', 'operation').eq('operation', 'swap').order('created_at', { ascending: false }).limit(20),
+      admin.from('platform_settings').select('setting_key,setting_value'),
+      admin.from('swap_orders').select('id', { count: 'exact', head: true }),
+      admin.from('ledger_transactions').select('id', { count: 'exact', head: true }).eq('status', 'posted'),
     ]);
-    for (const result of [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations]) if (result.error) throw result.error;
+    for (const result of [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger]) if (result.error) throw result.error;
 
     const submissions = pendingKyc.data || [];
     const userIds = [...new Set(submissions.map((x) => x.user_id))];
@@ -53,9 +59,25 @@ Deno.serve(async (req) => {
       documentMap.set(doc.submission_id, list);
     }
     const kycItems = submissions.map((item) => ({ ...item, email: profileMap.get(item.user_id)?.email || null, display_name: profileMap.get(item.user_id)?.display_name || null, documents: documentMap.get(item.id) || [] }));
+    const systemSettings = Object.fromEntries((settings.data || []).map((x) => [x.setting_key, x.setting_value]));
+    const currentTime = Date.now();
+    const activeSwapFee = (fees.data || []).find((x) => x.is_active &&
+      (!x.effective_from || new Date(x.effective_from).getTime() <= currentTime) &&
+      (!x.effective_until || new Date(x.effective_until).getTime() > currentTime)) || null;
     return json({
       roles,
-      metrics: { users: users.count ?? 0, pending_kyc: pendingKycCount.count ?? 0, pending_deposits: pendingDepositCount.count ?? 0, pending_withdrawals: pendingWithdrawalCount.count ?? 0 },
+      metrics: {
+        users: users.count ?? 0,
+        pending_kyc: pendingKycCount.count ?? 0,
+        pending_deposits: pendingDepositCount.count ?? 0,
+        pending_withdrawals: pendingWithdrawalCount.count ?? 0,
+        swap_orders: swaps.count ?? 0,
+        posted_ledger_transactions: ledger.count ?? 0,
+      },
+      assets: assets.data || [],
+      trading_pairs: pairs.data || [],
+      active_swap_fee: activeSwapFee,
+      system_settings: systemSettings,
       pending_kyc: kycItems,
       pending_invitations: roles.includes('super_admin') ? (pendingInvitations.data || []) : [],
     });
