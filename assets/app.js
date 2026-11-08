@@ -462,7 +462,7 @@ async function renderWithdraw() {
       ${rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>Destination</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.asset_code)}</td><td>${money(r.amount,8)}</td><td class="table-muted">${escapeHtml(r.destination_address)}</td><td>${fmtDate(r.created_at)}</td><td>${statusPill(r.status)}${r.rejection_reason?`<div class="field-help">${escapeHtml(r.rejection_reason)}</div>`:''}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No withdrawal requests','Your withdrawal requests will appear here.') }
     </section>`;
 }
-async async function renderInvestments() {
+async function renderInvestments() {
   await loadMarkets();
   const [plans, investments] = await Promise.all([
     supabase.from('investment_plans').select('id,plan_code,name,description,asset_code,minimum_amount,maximum_amount,minimum_duration_days,maximum_duration_days,rate_value,rate_period,is_active').eq('is_active',true).order('name'),
