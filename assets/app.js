@@ -654,7 +654,7 @@ async function submitKyc(event) {
     const {data,error}=await supabase.functions.invoke('submit-kyc',{body:{submission_id:submissionId,documents}});
     if(error)throw error;
     toast('Documents uploaded and submitted for review.','success');await renderPage('kyc');
-  }catch(error){console.error(error);toast(error.message||'Could not submit KYC documents.','error');btn.disabled=false;btn.textContent='Upload and submit documents →';}
+  }catch(error){console.error(error);if(uploadedPaths.length){const {error:cleanupError}=await supabase.storage.from(KYC_BUCKET).remove(uploadedPaths);if(cleanupError)console.warn('KYC upload cleanup was incomplete:',cleanupError.message);}toast(error.message||'Could not submit KYC documents.','error');btn.disabled=false;btn.textContent='Upload and submit documents →';}
 }
 
 async function loadNotifications() {
