@@ -316,6 +316,7 @@ async function renderMarkets() {
 
 async function renderSwap() {
   await loadMarkets();
+  await loadBalances();
   const { data: pairs, error } = await supabase.from('trading_pairs')
     .select('base_asset_code,quote_asset_code,display_order')
     .eq('is_active', true)
@@ -339,7 +340,7 @@ async function renderSwap() {
       <div class="swap-box"><div class="swap-box-top"><span>You send</span><span id="swap-send-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-amount" type="number" min="0" step="any" value="1" aria-label="Amount to swap"/><select id="swap-from" class="asset-select">${opts(first.base_asset_code)}</select></div></div>
       <button class="swap-direction" id="swap-reverse" aria-label="Reverse assets">↕</button>
       <div class="swap-box"><div class="swap-box-top"><span>Estimated receive</span><span id="swap-receive-usd">≈ —</span></div><div class="swap-input-row"><input id="swap-estimate" readonly value="—" aria-label="Estimated receive amount"/><select id="swap-to" class="asset-select">${opts(first.quote_asset_code)}</select></div></div>
-      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Fee</span><strong>Not charged in preview</strong></div><div class="detail-row"><span>Execution status</span><strong class="negative">Preview only</strong></div></div>
+      <div class="detail-list" style="margin:17px 0"><div class="detail-row"><span>Indicative rate</span><strong id="swap-rate">—</strong></div><div class="detail-row"><span>Available balance</span><strong id="swap-available-balance">—</strong></div><div class="detail-row"><span>Fee</span><strong>Not charged in preview</strong></div><div class="detail-row"><span>Execution status</span><strong class="negative">Preview only</strong></div></div>
       <button class="primary-button" id="get-swap-quote" style="width:100%">Calculate preview</button>
     </section><aside class="card section-card"><h3>Swap controls</h3><p>Only active pairs configured by the Super Admin are available here.</p>
       <div class="security-row"><div><strong>Market reference</strong><span>CoinGecko public market data</span></div><span class="status-pill ${state.markets.length?'approved':'pending'}">${state.markets.length?'Connected':'Unavailable'}</span></div>
@@ -447,6 +448,8 @@ async function renderAdmin() {
   const invites=data.pending_invitations||[];
   const pairs=data.trading_pairs||[];
   const fee=data.active_swap_fee||null;
+  const treasury=data.treasury_balances||[];
+  const hasTreasuryLiquidity=treasury.some(item=>Number(item.balance)>0);
   const settings=data.system_settings||{};
   const systemValue=(key)=>settings[key]===undefined?'Not configured':String(settings[key]);
   return `${heading('Admin console','Governance, system health, market configuration and compliance.',isSuper?`<button class="primary-button" id="open-invite-admin">+ Invite administrator</button>`:'')}
@@ -465,6 +468,11 @@ async function renderAdmin() {
         <div class="security-row"><div><strong>Active trading pairs</strong><span>${pairs.filter(p=>p.is_active).length} of ${pairs.length}</span></div>${statusPill(pairs.some(p=>p.is_active)?'approved':'pending')}</div>
       </section>
     </div>
+    <div class="page-spacer"></div>
+    <section class="card section-card"><div class="panel-head"><div><h3 style="margin:0">Platform treasury &amp; liquidity</h3><div class="panel-subtitle">Balances are derived from posted internal-ledger entries.</div></div><span class="status-pill ${hasTreasuryLiquidity?'approved':'pending'}">${hasTreasuryLiquidity?'Funded':'No liquidity'}</span></div>
+      ${treasury.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Asset</th><th>Treasury balance</th><th>Settlement readiness</th></tr></thead><tbody>${treasury.map(item=>`<tr><td><strong>${escapeHtml(item.asset_code)}</strong></td><td>${money(item.balance,8)} ${escapeHtml(item.asset_code)}</td><td>${Number(item.balance)>0?statusPill('approved'):statusPill('pending')}</td></tr>`).join('')}</tbody></table></div>`:emptyState('Treasury accounts not available','The platform treasury accounts could not be loaded.')}
+      <div class="security-note">A live swap cannot settle unless the platform holds the asset being delivered. Price feeds do not create inventory.</div>
+    </section>
     <div class="page-spacer"></div>
     <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair makes it available for preview quotes only; it does not enable execution.</div></div></div>
       ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable preview pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
@@ -581,11 +589,14 @@ function bindPageEvents(page) {
     // The empty-state view intentionally has no quote controls until an admin enables a pair.
     const amountInput=$('#swap-amount'),fromSelect=$('#swap-from'),toSelect=$('#swap-to');
     const estimateInput=$('#swap-estimate'),rateOutput=$('#swap-rate');
+    const availableOutput=$('#swap-available-balance');
     const sendUsd=$('#swap-send-usd'),receiveUsd=$('#swap-receive-usd');
     const calculate=()=>{
-      if(!amountInput||!fromSelect||!toSelect||!estimateInput||!rateOutput||!sendUsd||!receiveUsd)return;
+      if(!amountInput||!fromSelect||!toSelect||!estimateInput||!rateOutput||!availableOutput||!sendUsd||!receiveUsd)return;
       const amount=Number(amountInput.value||0),from=fromSelect.value,to=toSelect.value;
       const fromPrice=priceOf(from),toPrice=priceOf(to);
+      const available=state.balances.filter(row=>row.domain==='exchange'&&row.account_kind==='available'&&row.asset_code===from).reduce((sum,row)=>sum+Number(row.balance||0),0);
+      availableOutput.textContent=`${money(available,8)} ${from}`;
       const pairEnabled=state.tradingPairs.some(p=>(p.base_asset_code===from&&p.quote_asset_code===to)||(p.base_asset_code===to&&p.quote_asset_code===from));
       if(!Number.isFinite(amount)||amount<=0||from===to||!pairEnabled||fromPrice==null||toPrice==null||!Number.isFinite(fromPrice)||!Number.isFinite(toPrice)||toPrice<=0){
         estimateInput.value='—';rateOutput.textContent=pairEnabled?'Waiting for valid amount or market price':'Pair is not enabled';
