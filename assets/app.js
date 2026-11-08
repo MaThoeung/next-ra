@@ -860,7 +860,7 @@ function bindPageEvents(page) {
       try{
         const {data,error}=await supabase.functions.invoke('manual-settlement',{body:{
           action:'submit_deposit',
-          asset_code:$('#manual-deposit-asset').value,
+          asset_code:$('#deposit-asset').value,
           amount:$('#manual-deposit-amount').value,
           external_reference:$('#manual-deposit-reference').value.trim(),
           memo:[`CHANNEL:${$('#deposit-asset').value==='USD'?'BANK_TRANSFER':'CRYPTO'}`,`NETWORK:${$('#deposit-asset').value==='USD'?'BANK':$('#deposit-network').value}`,$('#manual-deposit-memo').value.trim()].filter(Boolean).join(' | ')
