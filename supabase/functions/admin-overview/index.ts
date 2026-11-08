@@ -26,12 +26,14 @@ Deno.serve(async (req) => {
     const roles = (roleRows || []).map((r) => r.role);
     if (!roles.length) return json({ error: 'Administrator access required.' }, 403);
 
-    const [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger, treasuryAccounts] = await Promise.all([
+    const [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingDeposits, pendingWithdrawals, pendingInvitations, assets, pairs, fees, settings, swaps, ledger, treasuryAccounts] = await Promise.all([
       admin.from('profiles').select('id', { count: 'exact', head: true }),
       admin.from('kyc_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       admin.from('deposits').select('id', { count: 'exact', head: true }).in('status', ['submitted', 'under_review']),
       admin.from('withdrawals').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review']),
       admin.from('kyc_submissions').select('id,user_id,status,submitted_at').eq('status', 'pending').order('submitted_at', { ascending: true }).limit(20),
+      admin.from('deposits').select('id,user_id,asset_code,amount,transaction_hash,memo,status,created_at').eq('network_code','MANUAL').in('status',['submitted','under_review']).order('created_at',{ascending:true}).limit(30),
+      admin.from('withdrawals').select('id,user_id,asset_code,amount,fee_amount,net_amount,destination_address,memo,status,created_at').eq('network_code','MANUAL').in('status',['requested','under_review','approved','processing']).order('created_at',{ascending:true}).limit(30),
       roles.includes('super_admin') ? admin.from('admin_invitations').select('id,email,role,status,created_at,expires_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
       admin.from('assets').select('code,name,is_active,display_order').order('display_order', { ascending: true }),
       admin.from('trading_pairs').select('id,base_asset_code,quote_asset_code,is_active,display_order').order('display_order', { ascending: true }),
@@ -41,7 +43,7 @@ Deno.serve(async (req) => {
       admin.from('ledger_transactions').select('id', { count: 'exact', head: true }).eq('status', 'posted'),
       admin.from('ledger_accounts').select('id,asset_code').eq('domain', 'platform').eq('account_kind', 'treasury').eq('is_active', true),
     ]);
-    for (const result of [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingInvitations, assets, pairs, fees, settings, swaps, ledger, treasuryAccounts]) if (result.error) throw result.error;
+    for (const result of [users, pendingKycCount, pendingDepositCount, pendingWithdrawalCount, pendingKyc, pendingDeposits, pendingWithdrawals, pendingInvitations, assets, pairs, fees, settings, swaps, ledger, treasuryAccounts]) if (result.error) throw result.error;
 
     const treasuryIds = (treasuryAccounts.data || []).map((x) => x.id);
     const treasuryEntries = treasuryIds.length
@@ -57,7 +59,8 @@ Deno.serve(async (req) => {
     });
 
     const submissions = pendingKyc.data || [];
-    const userIds = [...new Set(submissions.map((x) => x.user_id))];
+    const paymentRows = [...(pendingDeposits.data || []), ...(pendingWithdrawals.data || [])];
+    const userIds = [...new Set([...submissions.map((x) => x.user_id), ...paymentRows.map((x) => x.user_id)])];
     const submissionIds = submissions.map((x) => x.id);
     const [profiles, docs] = await Promise.all([
       userIds.length ? admin.from('profiles').select('id,email,display_name').in('id', userIds) : Promise.resolve({ data: [], error: null }),
@@ -94,6 +97,8 @@ Deno.serve(async (req) => {
       treasury_balances: treasuryBalances,
       system_settings: systemSettings,
       pending_kyc: kycItems,
+      pending_deposits: (pendingDeposits.data || []).map((item) => ({...item,email:profileMap.get(item.user_id)?.email||null})),
+      pending_withdrawals: (pendingWithdrawals.data || []).map((item) => ({...item,email:profileMap.get(item.user_id)?.email||null})),
       pending_invitations: roles.includes('super_admin') ? (pendingInvitations.data || []) : [],
     });
   } catch (error) {
