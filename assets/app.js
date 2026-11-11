@@ -564,6 +564,14 @@ async function renderAdmin() {
   const canReviewMoney=state.roles.some(role=>['super_admin','finance_admin'].includes(role));
   const invites=data.pending_invitations||[];
   const pairs=data.trading_pairs||[];
+  const [futuresConfigResult,futuresPricesResult,futuresFundingResult] = await Promise.all([
+    supabase.from('futures_contract_risk_config').select('symbol,max_leverage,maintenance_margin_rate,taker_fee_rate,max_price_age_seconds,preview_enabled,trading_enabled').order('symbol'),
+    supabase.from('futures_market_prices').select('symbol,mark_price,source,fetched_at').order('symbol'),
+    supabase.from('futures_funding_rates').select('symbol,funding_rate,interval_hours,enabled').order('symbol')
+  ]);
+  const futuresConfigs=futuresConfigResult.data||[];
+  const futuresPrices=new Map((futuresPricesResult.data||[]).map(x=>[x.symbol,x]));
+  const futuresFunding=new Map((futuresFundingResult.data||[]).map(x=>[x.symbol,x]));
   const fee=data.active_swap_fee||null;
   const treasury=data.treasury_balances||[];
   const hasTreasuryLiquidity=false;
@@ -595,6 +603,12 @@ async function renderAdmin() {
     <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair allows internal simulated swaps using USD market-reference prices. It never enables external exchange or blockchain execution.</div></div></div>
       ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable internal pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
     </section>
+    <div class="page-spacer"></div>
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Futures risk &amp; market controls</div><div class="panel-subtitle">Read-only operational view. Changes remain locked until backend risk and ledger verification is complete.</div></div><span class="status-pill pending">Preview only</span></div>
+      ${futuresConfigResult.error||futuresPricesResult.error||futuresFundingResult.error?emptyState('Futures configuration unavailable','The authenticated session could not read all Futures configuration tables.'):futuresConfigs.length?'<div class="table-wrap"><table class="data-table"><thead><tr><th>Contract</th><th>Mark price</th><th>Price feed</th><th>Max leverage</th><th>Maintenance margin</th><th>Taker fee</th><th>Preview</th><th>Trading</th><th>Funding rate</th></tr></thead><tbody>'+futuresConfigs.map(c=>{const p=futuresPrices.get(c.symbol),age=p?(Date.now()-new Date(p.fetched_at).getTime())/1000:Infinity,fresh=!!p&&age<=Number(c.max_price_age_seconds||60),fund=futuresFunding.get(c.symbol);return '<tr><td><strong>'+escapeHtml(c.symbol)+'</strong></td><td>'+(p?fmtPrice(p.mark_price):'—')+'</td><td>'+(fresh?'Fresh':'Stale / missing')+'<div class="field-help">'+escapeHtml(p?.source||'No source')+'</div></td><td>'+c.max_leverage+'×</td><td>'+money(Number(c.maintenance_margin_rate)*100,3)+'%</td><td>'+money(Number(c.taker_fee_rate)*100,3)+'%</td><td>'+statusPill(c.preview_enabled?'approved':'pending')+'</td><td>'+statusPill(c.trading_enabled?'pending':'approved')+'</td><td>'+(fund&&fund.enabled?money(Number(fund.funding_rate)*100,4)+'% / '+fund.interval_hours+'h':'Disabled')+'</td></tr>';}).join('')+'</tbody></table></div>':emptyState('No Futures contracts configured','No Futures contract risk configuration rows are available.')}
+      <div class="security-note">This panel is informational only. It cannot change leverage, fees, funding rates, trading flags, balances, orders or positions.</div>
+    </section>
+    <div class="page-spacer"></div>
     ${isSuper?`<div class="page-spacer"></div><section class="card section-card"><h3>Swap fee configuration</h3><p>Fee changes are recorded in the admin audit log. The configured fee is applied to completed internal swaps. No external exchange or blockchain fee is charged.</p>
       <div class="security-row"><div><strong>Current swap fee</strong><span>${fee?`${money(fee.fee_value,2)}% · effective ${fmtDate(fee.effective_from)}`:'Not configured · minimum allowed is 0.05%'}</span></div>${statusPill(fee?'approved':'pending')}</div>
       <div class="form-field"><label class="field-label" for="swap-fee-percent">New swap fee (%)</label><input id="swap-fee-percent" class="form-control" type="number" min="0.05" max="10" step="0.01" value="${fee?escapeHtml(String(fee.fee_value)):''}" placeholder="Enter 0.05–10" /></div>
