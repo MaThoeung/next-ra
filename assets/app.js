@@ -37,7 +37,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 
 const state = {
   user: null, session: null, profile: null, roles: [], aal: 'aal1',
-  page: 'dashboard', markets: [], marketsUpdatedAt: 0, marketError: false,
+  page: 'dashboard', markets: [], marketsUpdatedAt: 0, marketError: false, futuresContracts: [],
   balances: [], adminOverview: null, notifications: [], tradingPairs: []
 };
 
@@ -52,7 +52,7 @@ const toast = (message, type = 'info') => {
   const node = document.createElement('div'); node.className = `toast ${type === 'error' ? 'error' : type === 'success' ? 'success' : ''}`; node.textContent = message;
   $('#toast-region').append(node); setTimeout(() => node.remove(), 4200);
 };
-const pageTitle = {dashboard:'Dashboard',markets:'Markets',swap:'Swap',wallet:'Wallets',deposit:'Deposit',withdraw:'Withdraw',investments:'Investments',referrals:'Referrals',kyc:'Identity verification',security:'Security',activity:'Activity',admin:'Admin console'};
+const pageTitle = {dashboard:'Dashboard',markets:'Markets',swap:'Swap',futures:'Futures Trading',wallet:'Wallets',deposit:'Deposit',withdraw:'Withdraw',investments:'Investments',referrals:'Referrals',kyc:'Identity verification',security:'Security',activity:'Activity',admin:'Admin console'};
 const priceOf = (code) => {
   if (code === 'USDT' || code === 'USDC' || code === 'USD') return 1;
   const bySymbol = state.markets.find((m) => m.symbol?.toUpperCase() === String(code).toUpperCase());
@@ -252,6 +252,7 @@ async function renderPage(page) {
     if (page === 'dashboard') root.innerHTML = await renderDashboard();
     else if (page === 'markets') root.innerHTML = await renderMarkets();
     else if (page === 'swap') root.innerHTML = await renderSwap();
+    else if (page === 'futures') root.innerHTML = await renderFutures();
     else if (page === 'wallet') root.innerHTML = await renderWallets();
     else if (page === 'deposit') root.innerHTML = await renderDeposit();
     else if (page === 'withdraw') root.innerHTML = await renderWithdraw();
@@ -265,6 +266,26 @@ async function renderPage(page) {
   } catch (error) {
     console.error(error); root.innerHTML = `${heading(pageTitle[page] || 'Workspace','An unexpected issue occurred.')}<div class="card panel">${emptyState('Could not load this section',error.message || 'Please refresh and try again.','!')}</div>`;
   }
+}
+
+async function renderFutures() {
+ const [c,p,pos,ord,w] = await Promise.all([
+  supabase.from('futures_contract_risk_config').select('symbol,max_leverage,preview_enabled,trading_enabled,max_price_age_seconds').eq('preview_enabled',true).order('symbol'),
+  supabase.from('futures_market_prices').select('symbol,mark_price,source,fetched_at').order('symbol'),
+  supabase.from('futures_positions').select('id,symbol,side,quantity,entry_price,mark_price,leverage,margin,unrealized_pnl,status,opened_at').eq('user_id',state.user.id).order('opened_at',{ascending:false}).limit(30),
+  supabase.from('futures_orders').select('id,symbol,side,order_type,quantity,leverage,status,created_at').eq('user_id',state.user.id).order('created_at',{ascending:false}).limit(20),
+  supabase.from('futures_wallets').select('available_margin,locked_margin').eq('user_id',state.user.id).maybeSingle()
+ ]);
+ const contracts=c.data||[], prices=p.data||[], positions=pos.data||[], orders=ord.data||[], wallet=w.data||{}; state.futuresContracts=contracts;
+ const priceMap=new Map(prices.map(x=>[x.symbol,x]));
+ const rows=positions.map(x=>'<tr><td>'+escapeHtml(x.symbol)+'</td><td>'+escapeHtml(x.side)+'</td><td>'+money(x.quantity,6)+'</td><td>'+fmtPrice(x.entry_price)+'</td><td>'+fmtPrice(x.mark_price)+'</td><td>'+x.leverage+'×</td><td>'+money(x.unrealized_pnl,4)+' USDT</td><td>'+statusPill(x.status)+'</td></tr>').join('');
+ const orderRows=orders.map(x=>'<tr><td>'+escapeHtml(x.symbol)+'</td><td>'+escapeHtml(x.side)+'</td><td>'+escapeHtml(x.order_type)+'</td><td>'+money(x.quantity,6)+'</td><td>'+x.leverage+'×</td><td>'+statusPill(x.status)+'</td><td>'+fmtDate(x.created_at)+'</td></tr>').join('');
+ return heading('Futures Trading','USDT-margined contracts · Isolated margin')+'<div class="futures-safety-banner"><strong>Preview mode</strong><span>Order execution and wallet transfers are disabled. This page cannot change balances or open positions.</span></div>'+
+ '<div class="futures-summary-grid"><section class="card panel"><div class="panel-subtitle">Available margin</div><div class="futures-metric">'+money(wallet.available_margin,4)+' <small>USDT</small></div></section><section class="card panel"><div class="panel-subtitle">Locked margin</div><div class="futures-metric">'+money(wallet.locked_margin,4)+' <small>USDT</small></div></section><section class="card panel"><div class="panel-subtitle">Preview contracts</div><div class="futures-metric">'+contracts.length+'</div></section><section class="card panel"><div class="panel-subtitle">Open positions</div><div class="futures-metric">'+positions.filter(x=>x.status==='open').length+'</div></section></div>'+
+ '<div class="futures-layout"><section class="card panel"><h2>Order calculator</h2><p class="panel-subtitle">Server-calculated quote only</p><div class="futures-form-grid"><label>Contract<select id="fut-symbol">'+contracts.map(x=>'<option value="'+escapeHtml(x.symbol)+'">'+escapeHtml(x.symbol)+' · max '+x.max_leverage+'×</option>').join('')+'</select></label><label>Direction<select id="fut-side"><option value="long">Long</option><option value="short">Short</option></select></label><label>Margin (USDT)<input id="fut-margin" type="number" min="1" step="0.01" value="100"></label><label>Leverage<select id="fut-leverage"><option>1</option><option>2</option><option>3</option><option>5</option><option>10</option><option>20</option></select></label></div><button class="primary-button" id="fut-quote-btn" type="button" '+(contracts.length?'':'disabled')+'>Calculate preview</button><div id="fut-quote-result" class="futures-quote-result hidden"></div><div class="futures-disabled-actions"><button class="secondary-button" disabled>Open Long</button><button class="secondary-button" disabled>Open Short</button><span>Execution remains locked until final risk and ledger verification.</span></div></section>'+
+ '<section class="card panel"><h2>Contract prices</h2><p class="panel-subtitle">Trusted Futures mark prices</p>'+contracts.map(x=>{const z=priceMap.get(x.symbol);const age=z?(Date.now()-new Date(z.fetched_at).getTime())/1000:Infinity;const fresh=z&&age<=Number(x.max_price_age_seconds||60);return '<div class="futures-price-row"><strong>'+escapeHtml(x.symbol)+'</strong><span>'+ (z?fmtPrice(z.mark_price):'—')+'<small>'+ (fresh?'Fresh':'Stale / unavailable')+'</small></span></div>';}).join('')+'</section></div>'+
+ '<section class="card table-card futures-table-card"><div class="panel-head"><h2>Positions</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Contract</th><th>Side</th><th>Quantity</th><th>Entry</th><th>Mark</th><th>Leverage</th><th>Unrealized P&amp;L</th><th>Status</th></tr></thead><tbody>'+(rows||'<tr><td colspan="8">No Futures positions yet.</td></tr>')+'</tbody></table></div></section>'+
+ '<section class="card table-card futures-table-card"><div class="panel-head"><h2>Order history</h2></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Contract</th><th>Side</th><th>Type</th><th>Quantity</th><th>Leverage</th><th>Status</th><th>Date</th></tr></thead><tbody>'+(orderRows||'<tr><td colspan="7">No Futures orders found.</td></tr>')+'</tbody></table></div></section>';
 }
 
 async function renderDashboard() {
@@ -543,6 +564,14 @@ async function renderAdmin() {
   const canReviewMoney=state.roles.some(role=>['super_admin','finance_admin'].includes(role));
   const invites=data.pending_invitations||[];
   const pairs=data.trading_pairs||[];
+  const [futuresConfigResult,futuresPricesResult,futuresFundingResult] = await Promise.all([
+    supabase.from('futures_contract_risk_config').select('symbol,max_leverage,maintenance_margin_rate,taker_fee_rate,max_price_age_seconds,preview_enabled,trading_enabled').order('symbol'),
+    supabase.from('futures_market_prices').select('symbol,mark_price,source,fetched_at').order('symbol'),
+    supabase.from('futures_funding_rates').select('symbol,funding_rate,interval_hours,enabled').order('symbol')
+  ]);
+  const futuresConfigs=futuresConfigResult.data||[];
+  const futuresPrices=new Map((futuresPricesResult.data||[]).map(x=>[x.symbol,x]));
+  const futuresFunding=new Map((futuresFundingResult.data||[]).map(x=>[x.symbol,x]));
   const fee=data.active_swap_fee||null;
   const treasury=data.treasury_balances||[];
   const hasTreasuryLiquidity=false;
@@ -574,6 +603,12 @@ async function renderAdmin() {
     <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Trading pair controls</div><div class="panel-subtitle">Enabling a pair allows internal simulated swaps using USD market-reference prices. It never enables external exchange or blockchain execution.</div></div></div>
       ${pairs.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Pair</th><th>Configuration</th><th>Action</th></tr></thead><tbody>${pairs.map(p=>`<tr><td><strong>${escapeHtml(p.base_asset_code)} / ${escapeHtml(p.quote_asset_code)}</strong></td><td>${statusPill(p.is_active?'approved':'pending')}</td><td>${isSuper?`<button class="small-button ${p.is_active?'reject':'approve'}" data-admin-pair-toggle="${escapeHtml(p.id)}" data-enabled="${p.is_active?'true':'false'}">${p.is_active?'Disable pair':'Enable internal pair'}</button>`:'Read only'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('No pairs configured','Add trading pairs in the database before enabling market quotes.')}
     </section>
+    <div class="page-spacer"></div>
+    <section class="card panel table-card"><div class="panel-head"><div><div class="panel-title">Futures risk &amp; market controls</div><div class="panel-subtitle">Read-only operational view. Changes remain locked until backend risk and ledger verification is complete.</div></div><span class="status-pill pending">Preview only</span></div>
+      ${futuresConfigResult.error||futuresPricesResult.error||futuresFundingResult.error?emptyState('Futures configuration unavailable','The authenticated session could not read all Futures configuration tables.'):futuresConfigs.length?'<div class="table-wrap"><table class="data-table"><thead><tr><th>Contract</th><th>Mark price</th><th>Price feed</th><th>Max leverage</th><th>Maintenance margin</th><th>Taker fee</th><th>Preview</th><th>Trading</th><th>Funding rate</th></tr></thead><tbody>'+futuresConfigs.map(c=>{const p=futuresPrices.get(c.symbol),age=p?(Date.now()-new Date(p.fetched_at).getTime())/1000:Infinity,fresh=!!p&&age<=Number(c.max_price_age_seconds||60),fund=futuresFunding.get(c.symbol);return '<tr><td><strong>'+escapeHtml(c.symbol)+'</strong></td><td>'+(p?fmtPrice(p.mark_price):'—')+'</td><td>'+(fresh?'Fresh':'Stale / missing')+'<div class="field-help">'+escapeHtml(p?.source||'No source')+'</div></td><td>'+c.max_leverage+'×</td><td>'+money(Number(c.maintenance_margin_rate)*100,3)+'%</td><td>'+money(Number(c.taker_fee_rate)*100,3)+'%</td><td>'+statusPill(c.preview_enabled?'approved':'pending')+'</td><td>'+statusPill(c.trading_enabled?'pending':'approved')+'</td><td>'+(fund&&fund.enabled?money(Number(fund.funding_rate)*100,4)+'% / '+fund.interval_hours+'h':'Disabled')+'</td></tr>';}).join('')+'</tbody></table></div>':emptyState('No Futures contracts configured','No Futures contract risk configuration rows are available.')}
+      <div class="security-note">This panel is informational only. It cannot change leverage, fees, funding rates, trading flags, balances, orders or positions.</div>
+    </section>
+    <div class="page-spacer"></div>
     ${isSuper?`<div class="page-spacer"></div><section class="card section-card"><h3>Swap fee configuration</h3><p>Fee changes are recorded in the admin audit log. The configured fee is applied to completed internal swaps. No external exchange or blockchain fee is charged.</p>
       <div class="security-row"><div><strong>Current swap fee</strong><span>${fee?`${money(fee.fee_value,2)}% · effective ${fmtDate(fee.effective_from)}`:'Not configured · minimum allowed is 0.05%'}</span></div>${statusPill(fee?'approved':'pending')}</div>
       <div class="form-field"><label class="field-label" for="swap-fee-percent">New swap fee (%)</label><input id="swap-fee-percent" class="form-control" type="number" min="0.05" max="10" step="0.01" value="${fee?escapeHtml(String(fee.fee_value)):''}" placeholder="Enter 0.05–10" /></div>
@@ -725,6 +760,16 @@ async function reviewKyc(id,status) {
 
 function bindPageEvents(page) {
   $$('[data-go]').forEach(button=>button.addEventListener('click',()=>renderPage(button.dataset.go)));
+  if(page==='futures'){
+    $('#fut-quote-btn')?.addEventListener('click',async()=>{
+      const symbol=$('#fut-symbol').value,side=$('#fut-side').value,margin=Number($('#fut-margin').value),leverage=Number($('#fut-leverage').value),contract=state.futuresContracts.find(x=>x.symbol===symbol),out=$('#fut-quote-result'),btn=$('#fut-quote-btn');
+      if(!contract||!Number.isFinite(margin)||margin<=0||!Number.isInteger(leverage)||leverage>contract.max_leverage){toast('Check margin and leverage limits.','error');return;}
+      btn.disabled=true;btn.textContent='Calculating…';out.classList.add('hidden');
+      try{const {data,error}=await supabase.rpc('get_futures_order_quote',{p_symbol:symbol,p_side:side,p_margin:margin,p_leverage:leverage,p_order_type:'market',p_limit_price:null});if(error)throw error;
+       out.innerHTML='<div class="futures-quote-grid"><div><small>Mark price</small><strong>'+fmtPrice(data.mark_price)+'</strong></div><div><small>Estimated entry</small><strong>'+fmtPrice(data.estimated_entry_price)+'</strong></div><div><small>Notional</small><strong>'+money(data.notional_usdt,4)+' USDT</strong></div><div><small>Quantity</small><strong>'+money(data.quantity,8)+'</strong></div><div><small>Entry fee estimate</small><strong>'+money(data.estimated_entry_fee_usdt,6)+' USDT</strong></div><div><small>Price age</small><strong>'+money(data.price_age_seconds,1)+' sec</strong></div></div><p>'+escapeHtml(data.warning||'Preview only. No order or balance mutation.')+'</p>';
+      }catch(e){out.textContent=e.message||'Quote unavailable. Verify your two-factor session.';}out.classList.remove('hidden');btn.disabled=false;btn.textContent='Calculate preview';
+    });
+  }
   if(page==='markets'){
     $('#refresh-markets')?.addEventListener('click',async()=>{await loadMarkets(true);await renderPage('markets');});
     $('#market-search')?.addEventListener('input',()=>{const term=$('#market-search').value.toLowerCase();const items=state.markets.filter(m=>m.name.toLowerCase().includes(term)||m.symbol.toLowerCase().includes(term));$('#market-table-body').innerHTML=items.length?items.map(marketRow).join(''):`<tr><td colspan="5">${emptyState('No matching assets','Try another search term.')}</td></tr>`;});
